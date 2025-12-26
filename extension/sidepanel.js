@@ -28,8 +28,8 @@ function normalizeTerminalOutput(text) {
   out = out.replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '');
   // - CSI: ESC [ ... cmd
   out = out.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
-  // - 1文字ESC（例: ESC c など）
-  out = out.replace(/\u001b[@-Z\\-_]/g, '');
+  // - 1文字ESC（例: ESC c / ESC 7 など）
+  out = out.replace(/\u001b[ -~]/g, '');
 
   return out;
 }
