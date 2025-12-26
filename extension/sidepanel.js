@@ -9,6 +9,7 @@ const cwdSelect = document.getElementById('cwdSelect');
 
 /** @type {chrome.runtime.Port | null} */
 let port = null;
+let hasConnectedStatus = false;
 
 function appendTerminal(text) {
   terminalEl.textContent += text;
@@ -44,13 +45,9 @@ async function connect() {
 
   setStatus('接続中...');
 
-  try {
-    port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-  } catch (e) {
-    setStatus(`接続失敗: ${String(e)}`);
-    return;
-  }
+  port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
 
+  hasConnectedStatus = false;
   port.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== 'object') return;
 
@@ -61,6 +58,11 @@ async function connect() {
 
     if (msg.type === 'status' && typeof msg.text === 'string') {
       setStatus(msg.text);
+      if (!hasConnectedStatus) {
+        hasConnectedStatus = true;
+        setConnectedState(true);
+        inputEl.focus();
+      }
       return;
     }
 
@@ -80,9 +82,7 @@ async function connect() {
   const cwd = cwdSelect.value;
   port.postMessage({ type: 'start', cwd });
 
-  setConnectedState(true);
-  setStatus('接続済み');
-  inputEl.focus();
+  // 接続試行中。実際の接続完了は status メッセージ受信で更新。
 }
 
 connectBtn.addEventListener('click', connect);

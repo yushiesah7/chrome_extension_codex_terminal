@@ -4,6 +4,7 @@ import path from 'node:path';
 import pty from 'node-pty';
 
 const MAX_CHUNK = 64 * 1024;
+const MAX_MSG_LEN = 1024 * 1024; // 1MB safeguard
 
 /** @type {import('node-pty').IPty | null} */
 let ptyProcess = null;
@@ -48,11 +49,12 @@ function startShell({ cwd }) {
   // Ensure working directory exists.
   try {
     fs.mkdirSync(resolvedCwd, { recursive: true });
-  } catch {
-    // ignore
+  } catch (e) {
+    sendMessage({ type: 'status', text: `ディレクトリ作成失敗: ${resolvedCwd}` });
   }
 
-  const shell = process.env.SHELL || '/bin/zsh';
+  const SHELL_CANDIDATES = [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'];
+  const shell = SHELL_CANDIDATES.find((s) => s && fs.existsSync(s)) || '/bin/sh';
 
   ptyProcess = pty.spawn(shell, ['-l'], {
     name: 'xterm-256color',
@@ -101,6 +103,11 @@ process.stdin.on('data', (chunk) => {
 
   while (inputBuffer.length >= 4) {
     const msgLen = inputBuffer.readUInt32LE(0);
+    if (msgLen > MAX_MSG_LEN) {
+      sendMessage({ type: 'status', text: 'メッセージサイズが大きすぎます' });
+      inputBuffer = Buffer.alloc(0);
+      break;
+    }
     if (inputBuffer.length < 4 + msgLen) break;
 
     const msgBuf = inputBuffer.slice(4, 4 + msgLen);
