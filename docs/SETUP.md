@@ -62,3 +62,4 @@ chmod +x native_host/run_host.sh
 - 接続できない：Native host の `.json` の `allowed_origins`（拡張ID）と `path` が正しいか確認
 - `run_host.sh` が起動しない：`chmod +x` 済みか確認
 - `Failed to start native messaging host.`：`PATH` が薄い状況を `env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin native_host/run_host.sh` で再現して原因を切り分ける
+- `起動失敗: Error: posix_spawnp failed.`：`cd native_host && npm run postinstall`（または `npm ci`）で `node-pty` の `spawn-helper` 実行権を修正する

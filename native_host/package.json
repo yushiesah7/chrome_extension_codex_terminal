@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/fix-node-pty-perms.mjs",
     "test": "node --test host_core.test.js"
   },
   "dependencies": {

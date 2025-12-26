@@ -80,6 +80,22 @@ env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
   /absolute/path/to/native_host/run_host.sh
 ```
 
+### `起動失敗: Error: posix_spawnp failed.`
+
+`node-pty` の `spawn-helper`（内部バイナリ）に実行権が付いていない場合に発生します。
+
+```bash
+cd native_host
+npm ci
+```
+
+すでに依存を入れている場合は以下でもOKです：
+
+```bash
+cd native_host
+npm run postinstall
+```
+
 ### `node-pty` のインストールに失敗する
 
 - Xcode Command Line Tools が未導入の場合は導入する（`xcode-select --install`）
