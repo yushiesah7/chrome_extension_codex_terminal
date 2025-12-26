@@ -1,8 +1,7 @@
 // Native Messaging host 名（manifest / host manifest と一致させる）
 const NATIVE_HOST_NAME = 'com.yushi.chrome_extension_codex_terminal';
 
-const terminalEl = document.getElementById('terminal'); // 出力表示
-const inputEl = document.getElementById('input');
+const terminalEl = document.getElementById('terminal'); // xterm コンテナ
 const statusEl = document.getElementById('status');
 const connectBtn = document.getElementById('connectBtn');
 const disconnectBtn = document.getElementById('disconnectBtn');
@@ -12,33 +11,12 @@ const cwdSelect = document.getElementById('cwdSelect');
 let port = null;
 let hasConnectedStatus = false; // hostからのstatusを受信したかどうか
 
-// 端末出力（ANSIエスケープ等）を素朴に整形する。
-// 注意: このUIは本格的なターミナルエミュレータではないため、TUIアプリ等は正しく表示できない。
-function normalizeTerminalOutput(text) {
-  if (typeof text !== 'string') {
-    console.warn('normalizeTerminalOutput: 非文字列を受信しました', typeof text, text);
-    return '';
-  }
-
-  // 改行を統一（\r は進捗表示等に使われるが、このUIでは扱えないため改行扱いにする）
-  let out = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
-  // ANSI escape sequences を除去（色・カーソル移動・bracketed paste 等）
-  // - OSC: ESC ] ... BEL or ESC \
-  out = out.replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '');
-  // - CSI: ESC [ ... cmd
-  out = out.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
-  // - 1文字ESC（例: ESC c / ESC 7 など）
-  out = out.replace(/\u001b[ -~]/g, '');
-
-  return out;
-}
-
-// 出力を追記し、スクロールを末尾にキープ
-function appendTerminal(text) {
-  terminalEl.textContent += text;
-  terminalEl.scrollTop = terminalEl.scrollHeight;
-}
+/** @type {Terminal | null} */
+let term = null;
+/** @type {FitAddon.FitAddon | null} */
+let fitAddon = null;
+/** @type {ResizeObserver | null} */
+let resizeObserver = null;
 
 function setStatus(text) {
   statusEl.textContent = text;
@@ -48,8 +26,8 @@ function setStatus(text) {
 function setConnectedState(connected) {
   connectBtn.disabled = connected;
   disconnectBtn.disabled = !connected;
-  inputEl.disabled = !connected;
   cwdSelect.disabled = connected;
+  if (term) term.options.disableStdin = !connected;
 }
 
 // ポートを閉じてUIを未接続状態に戻す
@@ -66,9 +44,60 @@ function disconnect() {
   setStatus('未接続');
 }
 
+function ensureTerminal() {
+  if (term) return;
+
+  if (typeof Terminal !== 'function') {
+    setStatus('エラー: xterm.js の読み込みに失敗しました');
+    return;
+  }
+
+  term = new Terminal({
+    cursorBlink: true,
+    convertEol: true,
+    scrollback: 3000,
+    disableStdin: true,
+    theme: {
+      background: '#0b0d10',
+      foreground: '#e6edf3'
+    }
+  });
+
+  fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+
+  term.open(terminalEl);
+  fitAddon.fit();
+
+  // Terminal -> Host（キー入力をそのまま送る）
+  term.onData((data) => {
+    if (!port) return;
+    port.postMessage({ type: 'input', data });
+  });
+
+  // Terminal -> Host（画面サイズ変更）
+  term.onResize(({ cols, rows }) => {
+    if (!port) return;
+    port.postMessage({ type: 'resize', cols, rows });
+  });
+
+  // コンテナのサイズ変化でフィット
+  if (typeof ResizeObserver === 'function') {
+    resizeObserver = new ResizeObserver(() => {
+      if (fitAddon) fitAddon.fit();
+    });
+    resizeObserver.observe(terminalEl);
+  } else {
+    window.addEventListener('resize', () => {
+      if (fitAddon) fitAddon.fit();
+    });
+  }
+}
+
 // Native Hostに接続し、statusを待ってから接続完了扱いにする
 async function connect() {
   disconnect();
+  ensureTerminal();
 
   setStatus('接続中...');
 
@@ -80,7 +109,7 @@ async function connect() {
     if (!msg || typeof msg !== 'object') return;
 
     if (msg.type === 'output' && typeof msg.data === 'string') {
-      appendTerminal(normalizeTerminalOutput(msg.data));
+      if (term) term.write(msg.data);
       return;
     }
 
@@ -89,7 +118,8 @@ async function connect() {
       if (!hasConnectedStatus) {
         hasConnectedStatus = true;
         setConnectedState(true);
-        inputEl.focus();
+        if (fitAddon) fitAddon.fit();
+        if (term) term.focus();
       }
       return;
     }
@@ -111,24 +141,18 @@ async function connect() {
   const cwd = cwdSelect.value;
   // UI上の選択肢は限定しているが、DevTools等でDOMを改変すれば任意値を送れる。
   // 実際の検証は Host 側（isAllowedCwd）で行う。
-  port.postMessage({ type: 'start', cwd });
+  port.postMessage({
+    type: 'start',
+    cwd,
+    cols: term?.cols,
+    rows: term?.rows
+  });
 
   // 接続試行中。実際の接続完了は status メッセージ受信で更新。
 }
 
 connectBtn.addEventListener('click', connect);
 disconnectBtn.addEventListener('click', disconnect);
-
-// Enterで1行送信。エコーバックは PTY 側で行われる。
-inputEl.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter') return;
-  if (!port) return;
-
-  const line = inputEl.value;
-  inputEl.value = '';
-
-  port.postMessage({ type: 'input', data: `${line}\n` });
-});
 
 // Start disconnected
 setConnectedState(false);

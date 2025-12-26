@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Codex Terminal</title>
+    <!-- xterm.js（ターミナル描画） -->
+    <link rel="stylesheet" href="vendor/xterm.css" />
     <!-- サイドパネルのUIスタイル -->
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -27,14 +29,12 @@
     </header>
 
     <main class="main">
-      <pre id="terminal" class="terminal" aria-label="terminal output"></pre>
-      <div class="inputRow">
-        <span class="prompt">❯</span>
-        <!-- 1行ずつコマンドを送信 -->
-        <input id="input" class="input" type="text" autocomplete="off" spellcheck="false" disabled />
-      </div>
+      <div id="terminal" class="terminal" aria-label="terminal"></div>
     </main>
 
+    <!-- xterm.js（依存順に注意） -->
+    <script src="vendor/xterm.js"></script>
+    <script src="vendor/xterm-addon-fit.js"></script>
     <!-- サイドパネルの挙動（Native Messaging 連携） -->
     <script src="sidepanel.js"></script>
   </body>

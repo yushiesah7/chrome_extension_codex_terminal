@@ -67,32 +67,11 @@ body {
 
 .terminal {
   flex: 1;
-  margin: 0;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.terminal .xterm {
+  height: 100%;
   padding: 10px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.inputRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px;
-  border-top: 1px solid #1f242b;
-  background: #0b0d10;
-}
-
-.prompt {
-  opacity: 0.9;
-}
-
-.input {
-  flex: 1;
-  background: transparent;
-  color: #e6edf3;
-  border: none;
-  outline: none;
-  font-family: inherit;
-  font-size: 13px;
 }
