@@ -8,15 +8,17 @@
 
 ## 事前条件
 
-- Node.js が入っている
+- Node.js が入っている（推奨: nvm 等）
 - Chrome（Manifest V3）
+- `node-pty` のビルド用に Xcode Command Line Tools が必要な場合あり（未導入なら `xcode-select --install`）
 
 ## 1. Native Host を準備
 
-このディレクトリで依存関係を入れる：
+Native Host の依存関係を入れる：
 
 ```bash
-npm install
+cd native_host
+npm ci # または npm install
 ```
 
 Native host を実行可能にする：
@@ -24,6 +26,8 @@ Native host を実行可能にする：
 ```bash
 chmod +x native_host/run_host.sh
 ```
+
+補足：Chrome（GUI）経由で Native Host を起動すると `PATH` が最小構成になり、nvm の `node` を見つけられないことがあります。`native_host/run_host.sh` は nvm / Homebrew / `PATH` の順で `node` を探索して起動します。
 
 ## 2. Chrome に拡張を読み込む
 
@@ -37,7 +41,8 @@ chmod +x native_host/run_host.sh
 
 1. `native_host/com.yushi.chrome_extension_codex_terminal.json.template` をコピーして `.json` を作る
 2. `__EXTENSION_ID__` を手順2で控えた拡張IDに置き換える
-3. その `.json` を次へ配置する
+3. `path` をこのリポジトリ内の `native_host/run_host.sh` の **絶対パス**に置き換える
+4. その `.json` を次へ配置する
 
 ```text
 ~/Library/Application Support/Google/Chrome/NativeMessagingHosts/
@@ -56,3 +61,4 @@ chmod +x native_host/run_host.sh
 - サイドパネルが開かない：Chromeを最新にし、拡張の権限エラーがないか確認
 - 接続できない：Native host の `.json` の `allowed_origins`（拡張ID）と `path` が正しいか確認
 - `run_host.sh` が起動しない：`chmod +x` 済みか確認
+- `Failed to start native messaging host.`：`PATH` が薄い状況を `env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin native_host/run_host.sh` で再現して原因を切り分ける
