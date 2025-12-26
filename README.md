@@ -1,0 +1,1 @@
+# chrome_extension_codex_terminal
