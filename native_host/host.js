@@ -32,7 +32,14 @@ function sendOutput(data) {
   }
 }
 
-function startShell({ cwd }) {
+function normalizeSize(raw, fallback, { min, max }) {
+  const n = Number(raw);
+  if (!Number.isInteger(n)) return fallback;
+  if (n < min || n > max) return fallback;
+  return n;
+}
+
+function startShell({ cwd, cols, rows }) {
   if (ptyProcess) {
     try {
       ptyProcess.kill();
@@ -72,11 +79,14 @@ function startShell({ cwd }) {
   const SHELL_CANDIDATES = [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'];
   const shell = SHELL_CANDIDATES.find((s) => s && fs.existsSync(s)) || '/bin/sh';
 
+  const normalizedCols = normalizeSize(cols, 80, { min: 2, max: 400 });
+  const normalizedRows = normalizeSize(rows, 24, { min: 1, max: 200 });
+
   try {
     ptyProcess = pty.spawn(shell, ['-l'], {
       name: 'xterm-256color',
-      cols: 80,
-      rows: 24,
+      cols: normalizedCols,
+      rows: normalizedRows,
       cwd: resolvedCwd,
       env: {
         ...process.env,
@@ -113,7 +123,7 @@ function handleMessage(msg) {
 
   if (msg.type === 'start') {
     // cwdはUI側で許可リストから選択。ここでもisAllowedCwdで再確認。
-    startShell({ cwd: msg.cwd });
+    startShell({ cwd: msg.cwd, cols: msg.cols, rows: msg.rows });
     return;
   }
 
@@ -123,6 +133,19 @@ function handleMessage(msg) {
       return;
     }
     ptyProcess.write(msg.data);
+    return;
+  }
+
+  if (msg.type === 'resize') {
+    if (!ptyProcess) return;
+    const cols = normalizeSize(msg.cols, null, { min: 2, max: 400 });
+    const rows = normalizeSize(msg.rows, null, { min: 1, max: 200 });
+    if (cols == null || rows == null) return;
+    try {
+      ptyProcess.resize(cols, rows);
+    } catch {
+      // ignore
+    }
   }
 }
 
