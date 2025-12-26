@@ -15,7 +15,10 @@ let hasConnectedStatus = false; // hostからのstatusを受信したかどう�
 // 端末出力（ANSIエスケープ等）を素朴に整形する。
 // 注意: このUIは本格的なターミナルエミュレータではないため、TUIアプリ等は正しく表示できない。
 function normalizeTerminalOutput(text) {
-  if (typeof text !== 'string') return '';
+  if (typeof text !== 'string') {
+    console.warn('normalizeTerminalOutput: 非文字列を受信しました', typeof text, text);
+    return '';
+  }
 
   // 改行を統一（\r は進捗表示等に使われるが、このUIでは扱えないため改行扱いにする）
   let out = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -116,7 +119,7 @@ async function connect() {
 connectBtn.addEventListener('click', connect);
 disconnectBtn.addEventListener('click', disconnect);
 
-// Enterで1行送信。送信前にエコーバックを出力。
+// Enterで1行送信。エコーバックは PTY 側で行われる。
 inputEl.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   if (!port) return;
