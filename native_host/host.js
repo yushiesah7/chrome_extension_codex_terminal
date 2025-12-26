@@ -1,7 +1,5 @@
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import os from 'node:os';
 import path from 'node:path';
 import pty from 'node-pty';
 
@@ -86,7 +84,7 @@ function cancelCodex() {
   }
 }
 
-function runCodex(prompt) {
+function runCodex({ prompt, threadId }) {
   cancelCodex();
 
   if (typeof prompt !== 'string' || !prompt.trim()) {
@@ -108,8 +106,7 @@ function runCodex(prompt) {
   }
 
   const codexBin = findCodexBin();
-  const lastMsgFile = path.join(os.tmpdir(), `codex_last_message_${randomUUID()}.txt`);
-
+  /** @type {string[]} */
   const args = [
     'exec',
     '--skip-git-repo-check',
@@ -117,20 +114,27 @@ function runCodex(prompt) {
     'read-only',
     '--color',
     'never',
+    '--json',
     '-C',
-    DEFAULT_WORKDIR,
-    '--output-last-message',
-    lastMsgFile,
-    '-'
+    DEFAULT_WORKDIR
   ];
 
-  sendMessage({ type: 'status', text: 'Codexに問い合わせ中...' });
+  const resumeId = typeof threadId === 'string' ? threadId.trim() : '';
+  if (resumeId) args.push('resume', resumeId);
+
+  // prompt は stdin から渡す（引数は '-'）
+  args.push('-');
+
+  sendMessage({
+    type: 'status',
+    text: resumeId ? 'Codexセッションを再開...' : 'Codexに問い合わせ中...'
+  });
 
   const child = spawn(codexBin, args, {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
       ...process.env,
-      // ANSI は出さない設定だが、念のため
+      // JSON出力のため ANSI は不要だが、念のため
       TERM: 'dumb'
     }
   });
@@ -144,11 +148,39 @@ function runCodex(prompt) {
     if (stderr.length > 200_000) stderr = stderr.slice(-200_000);
   });
 
-  // stdout は最終回答が last message file に出る想定。念のため捨てずに保持。
-  let stdout = '';
+  // --json の JSONL を逐次解析して、thread_id と回答を拾う
+  let stdoutBuf = '';
+  child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk) => {
-    stdout += chunk.toString('utf8');
-    if (stdout.length > 200_000) stdout = stdout.slice(-200_000);
+    stdoutBuf += chunk;
+    if (stdoutBuf.length > 500_000) stdoutBuf = stdoutBuf.slice(-500_000);
+
+    let newlineIdx;
+    while ((newlineIdx = stdoutBuf.indexOf('\n')) >= 0) {
+      const line = stdoutBuf.slice(0, newlineIdx).trim();
+      stdoutBuf = stdoutBuf.slice(newlineIdx + 1);
+      if (!line) continue;
+
+      let evt;
+      try {
+        evt = JSON.parse(line);
+      } catch {
+        continue;
+      }
+
+      if (evt?.type === 'thread.started' && typeof evt.thread_id === 'string') {
+        sendMessage({ type: 'codex_thread', id: evt.thread_id });
+        continue;
+      }
+
+      if (evt?.type === 'item.completed') {
+        const item = evt.item;
+        if (item?.type === 'agent_message' && typeof item.text === 'string' && item.text) {
+          // UI側のスクロールを崩さないよう、最後に改行を付与
+          sendTextChunks('codex_chunk', item.text.trimEnd() + '\n');
+        }
+      }
+    }
   });
 
   child.on('error', (e) => {
@@ -168,22 +200,23 @@ function runCodex(prompt) {
       codexTimeout = null;
     }
 
-    let answer = '';
-    try {
-      answer = fs.readFileSync(lastMsgFile, 'utf8');
-    } catch {
-      // fallback
-      answer = '';
+    // 最後が改行で終わらない場合に備えて、残りを1行として処理する
+    const tail = stdoutBuf.trim();
+    if (tail) {
+      try {
+        const evt = JSON.parse(tail);
+        if (evt?.type === 'thread.started' && typeof evt.thread_id === 'string') {
+          sendMessage({ type: 'codex_thread', id: evt.thread_id });
+        } else if (evt?.type === 'item.completed') {
+          const item = evt.item;
+          if (item?.type === 'agent_message' && typeof item.text === 'string' && item.text) {
+            sendTextChunks('codex_chunk', item.text.trimEnd() + '\n');
+          }
+        }
+      } catch {
+        // ignore
+      }
     }
-
-    try {
-      fs.unlinkSync(lastMsgFile);
-    } catch {
-      // ignore
-    }
-
-    const output = (answer || stdout || '').trimEnd();
-    if (output) sendTextChunks('codex_chunk', output + '\n');
 
     if (code !== 0) {
       const err = stderr.trim() ? stderr.trim() : `codex exec failed (code=${String(code)}, signal=${String(signal)})`;
@@ -295,7 +328,10 @@ function handleMessage(msg) {
   if (!msg || typeof msg !== 'object') return;
 
   if (msg.type === 'codex' && typeof msg.prompt === 'string') {
-    runCodex(msg.prompt);
+    runCodex({
+      prompt: msg.prompt,
+      threadId: typeof msg.threadId === 'string' ? msg.threadId : undefined
+    });
     return;
   }
 

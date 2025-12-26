@@ -80,7 +80,7 @@ cp native_host/com.yushi.chrome_extension_codex_terminal.json.template \
 5. サイドパネルが開き、回答が表示されればOK
 
 補足：
-- サイドパネルの「会話を続ける」がONなら、続けて質問すると（前回までのQ&Aを含めて）回答できます。履歴は「履歴クリア」で消せます。
+- サイドパネルの「会話を続ける」がONなら、同じCodexセッションを `codex exec resume` で再開して連続で質問できます（Chromeを閉じるまで）。「新しい会話」でリセットできます。
 
 （手動でやる場合）
 1. 拡張アイコンをクリック（サイドパネルを開く）
