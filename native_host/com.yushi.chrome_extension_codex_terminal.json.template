@@ -1,6 +1,6 @@
 {
   "name": "com.yushi.chrome_extension_codex_terminal",
-  "description": "Local zsh terminal for Chrome side panel (Native Messaging host)",
+  "description": "Run local codex CLI for Chrome side panel (Native Messaging host)",
   "path": "__HOST_PATH__",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://__EXTENSION_ID__/"]
