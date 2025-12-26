@@ -1,0 +1,9 @@
+{
+  "name": "chrome-extension-codex-terminal-native-host",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "dependencies": {
+    "node-pty": "^1.0.0"
+  }
+}
