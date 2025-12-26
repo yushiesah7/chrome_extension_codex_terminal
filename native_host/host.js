@@ -87,7 +87,7 @@ function startShell({ cwd }) {
     const errText = String(e);
     const hint =
       errText.includes('posix_spawnp failed')
-        ? '（node-pty の spawn-helper に実行権がない可能性。native_host で npm ci を再実行）'
+        ? '（node-pty の spawn-helper に実行権がない可能性。native_host で npm run postinstall（または npm ci））'
         : '';
     sendMessage({ type: 'status', text: `起動失敗: ${errText}${hint}` });
     ptyProcess = null;
