@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "Codex Terminal (Side Panel)",
   "version": "0.0.1",
+  "minimum_chrome_version": "116",
   "description": "Local zsh terminal in a Chrome side panel via Native Messaging.",
   "permissions": ["sidePanel", "nativeMessaging"],
   "action": {
