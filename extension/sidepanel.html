@@ -4,17 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Codex Terminal</title>
+    <!-- サイドパネルのUIスタイル -->
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <header class="header">
       <div class="row">
         <div class="title">Codex Terminal</div>
+        <!-- Native Host への接続/切断ボタン -->
         <button id="connectBtn" class="btn">接続</button>
         <button id="disconnectBtn" class="btn" disabled>切断</button>
       </div>
       <div class="row">
         <label class="label" for="cwdSelect">起動ディレクトリ</label>
+        <!-- 許可された作業ディレクトリの選択肢 -->
         <select id="cwdSelect" class="select">
           <option value="/tmp/chrome_extension_codex_terminal">/tmp/chrome_extension_codex_terminal</option>
           <option value="~/Downloads">~/Downloads</option>
@@ -27,10 +30,12 @@
       <pre id="terminal" class="terminal" aria-label="terminal output"></pre>
       <div class="inputRow">
         <span class="prompt">❯</span>
+        <!-- 1行ずつコマンドを送信 -->
         <input id="input" class="input" type="text" autocomplete="off" spellcheck="false" disabled />
       </div>
     </main>
 
+    <!-- サイドパネルの挙動（Native Messaging 連携） -->
     <script src="sidepanel.js"></script>
   </body>
 </html>

@@ -1,6 +1,7 @@
+// Native Messaging host 名（manifest / host manifest と一致させる）
 const NATIVE_HOST_NAME = 'com.yushi.chrome_extension_codex_terminal';
 
-const terminalEl = document.getElementById('terminal');
+const terminalEl = document.getElementById('terminal'); // 出力表示
 const inputEl = document.getElementById('input');
 const statusEl = document.getElementById('status');
 const connectBtn = document.getElementById('connectBtn');
@@ -9,8 +10,9 @@ const cwdSelect = document.getElementById('cwdSelect');
 
 /** @type {chrome.runtime.Port | null} */
 let port = null;
-let hasConnectedStatus = false;
+let hasConnectedStatus = false; // hostからのstatusを受信したかどうか
 
+// 出力を追記し、スクロールを末尾にキープ
 function appendTerminal(text) {
   terminalEl.textContent += text;
   terminalEl.scrollTop = terminalEl.scrollHeight;
@@ -20,6 +22,7 @@ function setStatus(text) {
   statusEl.textContent = text;
 }
 
+// UIの接続/切断状態をまとめて切り替え
 function setConnectedState(connected) {
   connectBtn.disabled = connected;
   disconnectBtn.disabled = !connected;
@@ -27,6 +30,7 @@ function setConnectedState(connected) {
   cwdSelect.disabled = connected;
 }
 
+// ポートを閉じてUIを未接続状態に戻す
 function disconnect() {
   if (port) {
     try {
@@ -40,6 +44,7 @@ function disconnect() {
   setStatus('未接続');
 }
 
+// Native Hostに接続し、statusを待ってから接続完了扱いにする
 async function connect() {
   disconnect();
 
@@ -48,6 +53,7 @@ async function connect() {
   port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
 
   hasConnectedStatus = false;
+  // Host→拡張のメッセージを受信
   port.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== 'object') return;
 
@@ -73,6 +79,7 @@ async function connect() {
     }
   });
 
+  // 切断時にlastErrorを確認し、UIをリセット
   port.onDisconnect.addListener(() => {
     const err = chrome.runtime.lastError?.message;
     disconnect();
@@ -80,7 +87,7 @@ async function connect() {
   });
 
   const cwd = cwdSelect.value;
-  port.postMessage({ type: 'start', cwd });
+  port.postMessage({ type: 'start', cwd }); // 許可されたcwdのみUI側が渡す
 
   // 接続試行中。実際の接続完了は status メッセージ受信で更新。
 }
@@ -88,6 +95,7 @@ async function connect() {
 connectBtn.addEventListener('click', connect);
 disconnectBtn.addEventListener('click', disconnect);
 
+// Enterで1行送信。送信前にエコーバックを出力。
 inputEl.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   if (!port) return;
