@@ -87,7 +87,9 @@ async function connect() {
   });
 
   const cwd = cwdSelect.value;
-  port.postMessage({ type: 'start', cwd }); // 許可されたcwdのみUI側が渡す
+  // UI上の選択肢は限定しているが、DevTools等でDOMを改変すれば任意値を送れる。
+  // 実際の検証は Host 側（isAllowedCwd）で行う。
+  port.postMessage({ type: 'start', cwd });
 
   // 接続試行中。実際の接続完了は status メッセージ受信で更新。
 }

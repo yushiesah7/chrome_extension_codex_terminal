@@ -15,5 +15,6 @@ jobs:
         with:
           node-version: 20
 
-      - name: Run native_host tests (no deps)
-        run: node --test native_host/host_core.test.js
+      - name: Run native_host tests
+        working-directory: native_host
+        run: npm test

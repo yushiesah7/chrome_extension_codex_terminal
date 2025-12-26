@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test host_core.test.js"
   },
   "dependencies": {
     "node-pty": "^1.0.0"
