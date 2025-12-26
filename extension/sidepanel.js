@@ -12,6 +12,28 @@ const cwdSelect = document.getElementById('cwdSelect');
 let port = null;
 let hasConnectedStatus = false; // hostからのstatusを受信したかどうか
 
+// 端末出力（ANSIエスケープ等）を素朴に整形する。
+// 注意: このUIは本格的なターミナルエミュレータではないため、TUIアプリ等は正しく表示できない。
+function normalizeTerminalOutput(text) {
+  if (typeof text !== 'string') {
+    console.warn('normalizeTerminalOutput: 非文字列を受信しました', typeof text, text);
+    return '';
+  }
+
+  // 改行を統一（\r は進捗表示等に使われるが、このUIでは扱えないため改行扱いにする）
+  let out = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // ANSI escape sequences を除去（色・カーソル移動・bracketed paste 等）
+  // - OSC: ESC ] ... BEL or ESC \
+  out = out.replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '');
+  // - CSI: ESC [ ... cmd
+  out = out.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+  // - 1文字ESC（例: ESC c / ESC 7 など）
+  out = out.replace(/\u001b[ -~]/g, '');
+
+  return out;
+}
+
 // 出力を追記し、スクロールを末尾にキープ
 function appendTerminal(text) {
   terminalEl.textContent += text;
@@ -58,7 +80,7 @@ async function connect() {
     if (!msg || typeof msg !== 'object') return;
 
     if (msg.type === 'output' && typeof msg.data === 'string') {
-      appendTerminal(msg.data);
+      appendTerminal(normalizeTerminalOutput(msg.data));
       return;
     }
 
@@ -97,16 +119,13 @@ async function connect() {
 connectBtn.addEventListener('click', connect);
 disconnectBtn.addEventListener('click', disconnect);
 
-// Enterで1行送信。送信前にエコーバックを出力。
+// Enterで1行送信。エコーバックは PTY 側で行われる。
 inputEl.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   if (!port) return;
 
   const line = inputEl.value;
   inputEl.value = '';
-
-  // Show what the user typed
-  appendTerminal(`❯ ${line}\n`);
 
   port.postMessage({ type: 'input', data: `${line}\n` });
 });
