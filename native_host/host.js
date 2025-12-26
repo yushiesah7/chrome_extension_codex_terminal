@@ -1,7 +1,12 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import pty from 'node-pty';
+
+import {
+  DEFAULT_WORKDIR,
+  isAllowedCwd,
+  resolveCwd as resolveCwdCore
+} from './host_core.js';
 
 const MAX_CHUNK = 64 * 1024;
 const MAX_MSG_LEN = 1024 * 1024; // 1MB safeguard
@@ -24,16 +29,6 @@ function sendOutput(data) {
   }
 }
 
-function resolveCwd(cwdRaw) {
-  if (!cwdRaw || typeof cwdRaw !== 'string') return '/tmp';
-
-  if (cwdRaw.startsWith('~/')) {
-    return path.join(os.homedir(), cwdRaw.slice(2));
-  }
-
-  return cwdRaw;
-}
-
 function startShell({ cwd }) {
   if (ptyProcess) {
     try {
@@ -44,28 +39,51 @@ function startShell({ cwd }) {
     ptyProcess = null;
   }
 
-  const resolvedCwd = resolveCwd(cwd);
+  const resolvedCwd = resolveCwdCore(cwd);
+
+  if (!isAllowedCwd(resolvedCwd)) {
+    sendMessage({ type: 'status', text: `許可されないcwd: ${String(resolvedCwd)}` });
+    return;
+  }
 
   // Ensure working directory exists.
   try {
-    fs.mkdirSync(resolvedCwd, { recursive: true });
+    const isTmpWorkdir =
+      resolvedCwd === DEFAULT_WORKDIR || resolvedCwd.startsWith(DEFAULT_WORKDIR + path.sep);
+    if (isTmpWorkdir) {
+      fs.mkdirSync(resolvedCwd, { recursive: true, mode: 0o700 });
+      try {
+        fs.chmodSync(resolvedCwd, 0o700);
+      } catch {
+        // ignore
+      }
+    } else {
+      fs.mkdirSync(resolvedCwd, { recursive: true });
+    }
   } catch (e) {
     sendMessage({ type: 'status', text: `ディレクトリ作成失敗: ${resolvedCwd}` });
+    return;
   }
 
   const SHELL_CANDIDATES = [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'];
   const shell = SHELL_CANDIDATES.find((s) => s && fs.existsSync(s)) || '/bin/sh';
 
-  ptyProcess = pty.spawn(shell, ['-l'], {
-    name: 'xterm-256color',
-    cols: 80,
-    rows: 24,
-    cwd: resolvedCwd,
-    env: {
-      ...process.env,
-      TERM: 'xterm-256color'
-    }
-  });
+  try {
+    ptyProcess = pty.spawn(shell, ['-l'], {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
+      cwd: resolvedCwd,
+      env: {
+        ...process.env,
+        TERM: 'xterm-256color'
+      }
+    });
+  } catch (e) {
+    sendMessage({ type: 'status', text: `起動失敗: ${String(e)}` });
+    ptyProcess = null;
+    return;
+  }
 
   sendMessage({ type: 'status', text: `起動: ${shell} (${resolvedCwd})` });
 
