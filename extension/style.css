@@ -190,6 +190,52 @@ body {
   flex-wrap: wrap;
 }
 
+.selectionContext {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(17, 22, 28, 0.92);
+  padding: 10px 12px;
+  position: relative;
+}
+
+.selectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.selectionLabel {
+  font-size: 12px;
+  color: rgba(230, 237, 243, 0.7);
+}
+
+.selectionText {
+  margin: 0;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(230, 237, 243, 0.92);
+  font-size: 12px;
+  line-height: 1.4;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.selectionUrl {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(230, 237, 243, 0.7);
+}
+
+.selectionUrl a {
+  color: var(--link);
+}
+
 .attachCard {
   position: relative;
   width: 72px;
@@ -430,6 +476,35 @@ body {
   background: transparent;
   border: 0;
   padding: 0;
+}
+
+.mermaidBlock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.mermaidWrapper {
+  width: 100%;
+  overflow: auto;
+}
+
+.mermaidWrapper svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaidFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.copyStatus {
+  font-size: 12px;
+  color: rgba(230, 237, 243, 0.75);
 }
 
 .dots {

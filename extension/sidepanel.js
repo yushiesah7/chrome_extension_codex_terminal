@@ -24,6 +24,10 @@ const panelClose = document.getElementById('panelClose');
 
 const chatEl = document.getElementById('chat');
 const attachmentsEl = document.getElementById('attachments');
+const selectionContextEl = document.getElementById('selectionContext');
+const selectionTextEl = document.getElementById('selectionText');
+const selectionUrlEl = document.getElementById('selectionUrl');
+const selectionClearBtn = document.getElementById('selectionClearBtn');
 const dropZone = document.getElementById('dropZone');
 
 const attachBtn = document.getElementById('attachBtn');
@@ -101,6 +105,38 @@ function safeString(value) {
 
 function setStatus(text) {
   statusEl.textContent = text;
+}
+
+function renderSelectionContext() {
+  if (!selectionContextEl) return;
+
+  const text = safeString(pendingSelectionText).trim();
+  const url = safeString(pendingPageUrl).trim();
+  const has = Boolean(text || url);
+
+  selectionContextEl.hidden = !has;
+  if (!has) {
+    if (selectionTextEl) selectionTextEl.textContent = '';
+    if (selectionUrlEl) selectionUrlEl.textContent = '';
+    return;
+  }
+
+  if (selectionTextEl) selectionTextEl.textContent = text;
+
+  if (selectionUrlEl) {
+    selectionUrlEl.innerHTML = '';
+    if (url) {
+      const label = document.createElement('span');
+      label.textContent = 'URL: ';
+      const a = document.createElement('a');
+      a.href = url;
+      a.textContent = url;
+      a.target = '_blank';
+      a.rel = 'noreferrer';
+      selectionUrlEl.appendChild(label);
+      selectionUrlEl.appendChild(a);
+    }
+  }
 }
 
 function toggleSettingsMenu(open) {
@@ -275,6 +311,95 @@ function renderMarkdownToHtml(markdown) {
   }
 }
 
+function initMermaid() {
+  const mermaid = globalThis.mermaid;
+  if (!mermaid?.initialize) return;
+  try {
+    mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+  } catch {
+    // ignore
+  }
+}
+
+function renderMermaidIn(container) {
+  const mermaid = globalThis.mermaid;
+  const DOMPurify = globalThis.DOMPurify;
+  if (!mermaid?.render || !(container instanceof HTMLElement)) return;
+
+  const codeBlocks = container.querySelectorAll('code.language-mermaid');
+  if (!codeBlocks.length) return;
+
+  codeBlocks.forEach((codeEl) => {
+    const parentPre = codeEl.closest('pre');
+    const code = codeEl.textContent || '';
+    if (!code.trim()) return;
+
+    const id = `mmd-${uid()}`;
+
+    mermaid
+      .render(id, code)
+      .then(({ svg }) => {
+        const svgHtml =
+          typeof DOMPurify?.sanitize === 'function'
+            ? DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } })
+            : svg;
+
+        const block = document.createElement('div');
+        block.className = 'mermaidBlock';
+
+        const svgWrapper = document.createElement('div');
+        svgWrapper.className = 'mermaidWrapper';
+        svgWrapper.innerHTML = svgHtml;
+
+        const footer = document.createElement('div');
+        footer.className = 'mermaidFooter';
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'btn ghost copyBtn';
+        copyBtn.type = 'button';
+        copyBtn.textContent = 'コピー';
+        const copyStatus = document.createElement('span');
+        copyStatus.className = 'copyStatus';
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard
+            ?.writeText(code)
+            .then(() => {
+              copyStatus.textContent = 'コピーしました';
+              setTimeout(() => {
+                copyStatus.textContent = '';
+              }, 1200);
+            })
+            .catch(() => {
+              copyStatus.textContent = 'コピー失敗';
+              setTimeout(() => {
+                copyStatus.textContent = '';
+              }, 1200);
+            });
+        });
+        footer.appendChild(copyBtn);
+        footer.appendChild(copyStatus);
+
+        const codeBlock = document.createElement('pre');
+        const codeNode = document.createElement('code');
+        codeNode.className = 'language-mermaid';
+        codeNode.textContent = code;
+        codeBlock.appendChild(codeNode);
+
+        block.appendChild(svgWrapper);
+        block.appendChild(codeBlock);
+        block.appendChild(footer);
+
+        if (parentPre) {
+          parentPre.replaceWith(block);
+        } else {
+          codeEl.replaceWith(block);
+        }
+
+        scrollToBottom();
+      })
+      .catch(() => {});
+  });
+}
+
 function createMessageRow(role) {
   const row = document.createElement('div');
   row.className = `messageRow ${role}`;
@@ -304,6 +429,7 @@ function setBubbleMarkdown(bubble, markdown) {
   const html = renderMarkdownToHtml(markdown);
   if (html) {
     bubble.innerHTML = html;
+    renderMermaidIn(bubble);
   } else {
     bubble.textContent = markdown;
   }
@@ -779,23 +905,12 @@ async function loadPendingAsk() {
 
   await chrome.storage.session.remove(STORAGE_KEY_PENDING);
 
-  // 「Codexに聞く（選択範囲）」は、自動送信せず入力欄に挿入するだけにする
+  // 「Codexに聞く（選択範囲）」は、自動送信せず「選択中」として表示する
   pendingSelectionText = selectionText;
   pendingPageUrl = pageUrl;
+  renderSelectionContext();
 
-  if (selectionText) {
-    // 既存入力がある場合は末尾に追記（最小の挙動で「挿入」）
-    if (promptInput.value.trim()) {
-      insertIntoPromptInput(`\n\n${selectionText}`);
-    } else {
-      applyToPromptInput(selectionText);
-    }
-    return;
-  }
-
-  if (question) {
-    applyToPromptInput(question);
-  }
+  if (question) applyToPromptInput(question);
 }
 
 // UI events
@@ -854,36 +969,9 @@ async function submitPrompt() {
   const hasImages = files.length > 0;
   if (!hasText && !hasImages) return;
 
-  const selectionTrim = safeString(pendingSelectionText).trim();
-  const inputTrim = safeString(text).trim();
-  let userText = text;
-  let selectionText = '';
-
-  if (selectionTrim) {
-    // 入力が「選択範囲そのもの」なら、選択として扱う（重複回避）
-    if (inputTrim === selectionTrim) {
-      userText = '';
-      selectionText = selectionTrim;
-    } else if (inputTrim.endsWith(selectionTrim)) {
-      // 末尾に選択が残っているなら、先頭を質問として分離する（よくある使い方）
-      const before = inputTrim.slice(0, inputTrim.length - selectionTrim.length).trimEnd();
-      if (before) {
-        userText = before;
-        selectionText = selectionTrim;
-      } else {
-        userText = '';
-        selectionText = selectionTrim;
-      }
-    } else {
-      // それ以外は「質問 + 選択」の両方として扱う（多少重複してもOK）
-      selectionText = selectionTrim;
-    }
-  }
-
+  const userText = text;
+  const selectionText = pendingSelectionText;
   const pageUrl = pendingPageUrl;
-  // 1回送ったら pending は消す（次の質問に勝手に混ざらないように）
-  pendingSelectionText = '';
-  pendingPageUrl = '';
 
   // clear input/attachments early (UI即応)
   promptInput.value = '';
@@ -904,10 +992,14 @@ async function submitPrompt() {
 clearBtn?.addEventListener('click', () => {
   promptInput.value = '';
   clearAttachments();
-  pendingSelectionText = '';
-  pendingPageUrl = '';
   autoResizeTextarea();
   setSendEnabled();
+});
+
+selectionClearBtn?.addEventListener('click', () => {
+  pendingSelectionText = '';
+  pendingPageUrl = '';
+  renderSelectionContext();
 });
 
 // settings
@@ -1116,6 +1208,7 @@ settingsMenu?.addEventListener('click', (e) => {
     resetConversation({ clearThread: true });
     pendingSelectionText = '';
     pendingPageUrl = '';
+    renderSelectionContext();
     return;
   }
 });
@@ -1127,10 +1220,12 @@ chrome.runtime.onMessage.addListener((msg) => {
 });
 
 async function init() {
+  initMermaid();
   await loadPromptTemplate();
   await loadCiCommands();
   toggleSettingsMenu(false);
   hidePanel();
+  renderSelectionContext();
   const data = await chrome.storage.session.get([STORAGE_KEY_THREAD_ID]);
   threadId = safeString(data[STORAGE_KEY_THREAD_ID]);
   updateMeta();
