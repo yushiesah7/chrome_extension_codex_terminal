@@ -8,45 +8,50 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <header class="header">
-      <div class="row">
-        <div class="title">Codex Terminal</div>
-        <!-- Native Host への接続/切断ボタン -->
-        <button id="connectBtn" class="btn">接続</button>
-        <button id="disconnectBtn" class="btn" disabled>切断</button>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brandTitle">Codex Terminal</div>
+        <div id="meta" class="brandMeta">未接続</div>
       </div>
-      <div class="row">
-        <label class="label" for="question">質問</label>
-        <input id="question" class="input" type="text" autocomplete="off" spellcheck="false" />
-        <button id="askBtn" class="btn" disabled>Codexに聞く</button>
-        <button id="clearBtn" class="btn">クリア</button>
+      <div class="topbarRight">
+        <div class="settings">
+          <button id="settingsBtn" class="btn ghost" aria-expanded="false">設定 ▾</button>
+          <div id="settingsMenu" class="settingsMenu" hidden>
+            <button class="menuItem" data-action="prompt">プロンプト</button>
+          </div>
+        </div>
+        <button id="newChatBtn" class="btn">新しい会話</button>
       </div>
-      <div class="row rowTight">
-        <label class="checkbox">
-          <input id="keepSession" type="checkbox" checked />
-          会話を続ける（セッション）
-        </label>
-        <div id="sessionMeta" class="meta"></div>
-        <button id="newSessionBtn" class="btn">新しい会話</button>
-      </div>
-      <div id="status" class="status">未接続</div>
     </header>
 
     <main class="main">
-      <section class="panel">
+      <div id="chat" class="chat" aria-label="conversation"></div>
+      <div id="panelOverlay" class="panelOverlay" hidden></div>
+      <aside id="settingsPanel" class="settingsPanel" aria-label="settings panel" hidden>
         <div class="panelHeader">
-          <div class="panelTitle">選択テキスト</div>
-          <div id="pageUrl" class="panelMeta"></div>
+          <div id="panelTitle" class="panelTitle">設定</div>
+          <button id="panelClose" class="iconBtn ghost" aria-label="close panel">×</button>
         </div>
-        <textarea id="selection" class="textarea" spellcheck="false" placeholder="ここに選択テキストが入ります（右クリック → Codexに聞く（選択範囲）でもOK）"></textarea>
-      </section>
-
-      <section class="panel">
-        <div class="panelHeader">
-          <div class="panelTitle">回答</div>
+        <div id="panelBody" class="panelBody">
+          <p class="muted">ここに設定内容を表示します。</p>
         </div>
-        <div id="answer" class="answer markdown" aria-label="codex answer"></div>
-      </section>
+      </aside>
+      <footer class="composer" aria-label="composer">
+        <div id="attachments" class="attachments" hidden></div>
+        <div id="dropZone" class="composerRow">
+          <button id="attachBtn" class="iconBtn" aria-label="attach" title="画像を添付">＋</button>
+          <textarea
+            id="promptInput"
+            class="composerInput"
+            rows="1"
+            placeholder="質問してみましょう（テキスト/コピペ/画像貼り付け）"
+            spellcheck="false"
+          ></textarea>
+          <button id="sendBtn" class="sendBtn" disabled>送信</button>
+        </div>
+        <div id="status" class="hint">Enterで送信 / Shift+Enterで改行</div>
+        <input id="fileInput" class="hidden" type="file" accept="image/*" multiple />
+      </footer>
     </main>
 
     <!-- サイドパネルの挙動（Native Messaging 連携） -->
