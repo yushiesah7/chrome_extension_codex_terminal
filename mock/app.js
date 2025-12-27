@@ -190,16 +190,32 @@ function renderMermaidIn(container) {
         svgWrapper.className = 'mermaidWrapper';
         svgWrapper.innerHTML = svg;
 
-        const toolbar = document.createElement('div');
-        toolbar.className = 'mermaidToolbar';
+        const footer = document.createElement('div');
+        footer.className = 'mermaidFooter';
         const copyBtn = document.createElement('button');
         copyBtn.className = 'btn ghost copyBtn';
         copyBtn.type = 'button';
         copyBtn.textContent = 'コピー';
+        const copyStatus = document.createElement('span');
+        copyStatus.className = 'copyStatus';
         copyBtn.addEventListener('click', () => {
-          navigator.clipboard?.writeText(code).catch(() => {});
+          navigator.clipboard
+            ?.writeText(code)
+            .then(() => {
+              copyStatus.textContent = 'コピーしました';
+              setTimeout(() => {
+                copyStatus.textContent = '';
+              }, 1200);
+            })
+            .catch(() => {
+              copyStatus.textContent = 'コピー失敗';
+              setTimeout(() => {
+                copyStatus.textContent = '';
+              }, 1200);
+            });
         });
-        toolbar.appendChild(copyBtn);
+        footer.appendChild(copyBtn);
+        footer.appendChild(copyStatus);
 
         const codeBlock = document.createElement('pre');
         const codeNode = document.createElement('code');
@@ -208,8 +224,8 @@ function renderMermaidIn(container) {
         codeBlock.appendChild(codeNode);
 
         block.appendChild(svgWrapper);
-        block.appendChild(toolbar);
         block.appendChild(codeBlock);
+        block.appendChild(footer);
 
         if (parentPre) {
           parentPre.replaceWith(block);
