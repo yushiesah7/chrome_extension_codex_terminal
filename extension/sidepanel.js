@@ -9,6 +9,7 @@ const STORAGE_KEY_CI_START_CMD = 'ciStartCommand';
 const STORAGE_KEY_CI_RESTART_CMD = 'ciRestartCommand';
 const STORAGE_KEY_CODEX_MODEL = 'codexModel';
 const STORAGE_KEY_CODEX_EFFORT = 'codexReasoningEffort';
+const STORAGE_KEY_CODEX_EFFORT_CAPS = 'codexEffortCapsByModel';
 
 const MODEL_PRESETS = [
   { value: '', label: 'デフォルト（config.toml）' },
@@ -87,6 +88,9 @@ let codexModel = '';
 
 /** @type {string} */
 let codexReasoningEffort = '';
+
+/** @type {Record<string, string[]>} */
+let effortCapsByModel = {};
 
 /** @type {{id:string, file:File, previewUrl:string}[]} */
 let attachments = [];
@@ -240,6 +244,15 @@ function isValidReasoningEffort(value) {
 
 function allowedEffortValuesForModel(model) {
   const m = safeString(model).trim();
+  const caps = effortCapsByModel?.[m];
+  if (m && Array.isArray(caps) && caps.length) {
+    const allowed = new Set(['']);
+    for (const raw of caps) {
+      const v = safeString(raw).trim();
+      if (isValidReasoningEffort(v)) allowed.add(v);
+    }
+    return allowed;
+  }
   // 現状のCodex UIに合わせて、miniは Medium/High のみ（Low/Extra high は出ない）
   if (m === 'gpt-5.1-codex-mini') return new Set(['', 'medium', 'high']);
   // 不明なモデルは一旦フル（codex側で弾かれる可能性はあるため、困ったらデフォルト推奨）
@@ -294,6 +307,46 @@ async function loadCodexEffort() {
     codexReasoningEffort = isValidReasoningEffort(v) ? v : '';
   } catch {
     codexReasoningEffort = '';
+  }
+}
+
+async function loadEffortCapsByModel() {
+  try {
+    const data = await chrome.storage.local.get([STORAGE_KEY_CODEX_EFFORT_CAPS]);
+    const v = data[STORAGE_KEY_CODEX_EFFORT_CAPS];
+    if (!v || typeof v !== 'object') {
+      effortCapsByModel = {};
+      return;
+    }
+
+    /** @type {Record<string, string[]>} */
+    const next = {};
+    for (const [k, raw] of Object.entries(v)) {
+      if (typeof k !== 'string') continue;
+      if (!Array.isArray(raw)) continue;
+      next[k] = raw.filter((s) => typeof s === 'string');
+    }
+    effortCapsByModel = next;
+  } catch {
+    effortCapsByModel = {};
+  }
+}
+
+async function saveEffortCapsForModel(model, efforts) {
+  const m = safeString(model).trim();
+  if (!m) return;
+
+  const list = Array.isArray(efforts) ? efforts : [];
+  const normalized = Array.from(
+    new Set(list.map((s) => safeString(s).trim()).filter((v) => v && isValidReasoningEffort(v)))
+  );
+
+  effortCapsByModel = { ...(effortCapsByModel || {}) };
+  effortCapsByModel[m] = normalized;
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEY_CODEX_EFFORT_CAPS]: effortCapsByModel });
+  } catch {
+    // ignore
   }
 }
 
@@ -712,6 +765,11 @@ async function connect() {
 
 function handleHostMessage(msg) {
   if (!msg || typeof msg !== 'object') return;
+
+  if (msg.type === 'codex_effort_caps' && typeof msg.model === 'string' && Array.isArray(msg.supportedEfforts)) {
+    saveEffortCapsForModel(msg.model, msg.supportedEfforts).catch(() => {});
+    return;
+  }
 
   if (msg.type === 'upload_ok' && typeof msg.requestId === 'string' && typeof msg.imageId === 'string') {
     const key = uploadKey(msg.requestId, msg.imageId);
@@ -1568,6 +1626,7 @@ async function init() {
   await loadCiCommands();
   await loadCodexModel();
   await loadCodexEffort();
+  await loadEffortCapsByModel();
   toggleSettingsMenu(false);
   hidePanel();
   const data = await chrome.storage.session.get([STORAGE_KEY_THREAD_ID]);

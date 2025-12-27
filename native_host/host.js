@@ -146,6 +146,22 @@ function parseSafeReasoningEffort(raw) {
   return value;
 }
 
+function extractSupportedEffortsFromError(text) {
+  const raw = typeof text === 'string' ? text : '';
+  const lower = raw.toLowerCase();
+  const idx = lower.indexOf('supported values are:');
+  if (idx < 0) return [];
+  const tail = raw.slice(idx);
+  const found = [];
+  const re = /'([a-z]+)'/g;
+  let m;
+  while ((m = re.exec(tail))) {
+    const v = m[1];
+    if (['low', 'medium', 'high', 'xhigh'].includes(v)) found.push(v);
+  }
+  return Array.from(new Set(found));
+}
+
 function extForMime(mimeType) {
   const t = typeof mimeType === 'string' ? mimeType.toLowerCase() : '';
   if (t === 'image/png') return '.png';
@@ -402,11 +418,16 @@ function runCodex({ prompt, threadId, imagePaths, requestId, model, reasoningEff
       }
 
       if (code !== 0 && attemptNo === 0 && attemptEffort) {
-        const combined = (stderr.trim() || lastJsonError || '').toLowerCase();
+        const errText = stderr.trim() || lastJsonError || '';
+        const combined = errText.toLowerCase();
         const looksUnsupported =
           combined.includes('unsupported value') &&
           (combined.includes('reasoning.effort') || combined.includes('model_reasoning_effort'));
         if (looksUnsupported) {
+          const supported = extractSupportedEffortsFromError(errText);
+          if (modelName && supported.length) {
+            sendMessage({ type: 'codex_effort_caps', model: modelName, supportedEfforts: supported });
+          }
           logLine(`codex retry: unsupported reasoning effort -> fallback to default (model=${modelName || '(default)'} effort=${attemptEffort})`);
           sendMessage({
             type: 'status',
