@@ -22,6 +22,7 @@ Chrome拡張は、セキュリティ上の理由から **勝手にPC上のコマ
 
 - `extension/`：Chrome 拡張（Side Panel UI）
 - `native_host/`：Native Messaging Host（Node.js + `node-pty`）
+- `mock/`：UIモック（HTTPで見た目だけ確認）
 
 ## セットアップ（macOS / Chrome）
 
@@ -119,6 +120,16 @@ Native Host は次にログを出します：
 ```bash
 tail -f /tmp/chrome_extension_codex_terminal/native_host.log
 ```
+
+## UIモック（見た目だけHTTPで確認）
+
+Native Messaging / Chrome API なしで、UIの見た目だけ確認したい場合はモックを使えます。
+
+```bash
+node mock/server.mjs
+```
+
+ブラウザで `http://127.0.0.1:5173` を開きます。
 
 ### `codex` が見つからない / 実行できない
 

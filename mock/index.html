@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Codex Terminal UI Mock</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brandTitle">Codex Terminal</div>
+        <div class="brandMeta">UI Mock（ロジックなし）</div>
+      </div>
+      <div class="topbarRight">
+        <button class="btn" disabled>接続</button>
+        <button class="btn" disabled>切断</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="composer">
+        <div class="composerRow">
+          <button class="iconBtn" aria-label="attach" title="画像/ファイル（モック）">＋</button>
+          <input class="composerInput" type="text" placeholder="質問してみましょう（テキスト/コピペ想定）" />
+          <button class="sendBtn" disabled title="モックのため送信不可">送信</button>
+        </div>
+        <div class="hint">
+          ここは見た目確認用です。実際の拡張は Native Messaging 経由で `codex` を実行します。
+        </div>
+      </section>
+
+      <section class="answerCard">
+        <div class="answerHeader">
+          <div class="answerTitle">回答</div>
+          <div class="answerMeta">Markdown表示イメージ</div>
+        </div>
+        <div class="answerBody">
+          <h3>これはモックです</h3>
+          <p>実際の回答は、拡張機能側で <code>codex exec</code> の結果を受け取り表示します。</p>
+          <ul>
+            <li>箇条書き</li>
+            <li><a href="#">リンク</a></li>
+          </ul>
+          <pre><code>const hello = "world";</code></pre>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
