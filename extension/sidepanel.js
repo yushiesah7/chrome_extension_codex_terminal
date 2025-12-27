@@ -108,8 +108,15 @@ let panelOpen = false;
 
 function setPanelOpen(on) {
   panelOpen = !!on;
-  if (settingsPanel) settingsPanel.hidden = !panelOpen;
-  settingsPanel?.setAttribute('aria-hidden', String(!panelOpen));
+  if (settingsPanel) {
+    settingsPanel.hidden = !panelOpen;
+    // `aria-hidden` は focus が残っていると警告になるため、表示制御は hidden/inert に寄せる
+    try {
+      settingsPanel.inert = !panelOpen;
+    } catch {
+      // ignore
+    }
+  }
   if (panelOverlay) panelOverlay.hidden = !panelOpen;
 }
 
@@ -122,6 +129,15 @@ function showPanel(title, buildBody) {
 }
 
 function hidePanel() {
+  // focus がパネル内に残ったまま閉じると `Blocked aria-hidden...` 系の警告が出るため、先に退避
+  try {
+    const active = document.activeElement;
+    if (settingsPanel && active instanceof HTMLElement && settingsPanel.contains(active)) {
+      (settingsBtn || promptInput)?.focus?.();
+    }
+  } catch {
+    // ignore
+  }
   setPanelOpen(false);
 }
 
