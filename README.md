@@ -106,6 +106,20 @@ env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
   /absolute/path/to/native_host/run_host.sh
 ```
 
+### デバッグログを見る
+
+Native Host は次にログを出します：
+
+```text
+/tmp/chrome_extension_codex_terminal/native_host.log
+```
+
+例：
+
+```bash
+tail -f /tmp/chrome_extension_codex_terminal/native_host.log
+```
+
 ### `codex` が見つからない / 実行できない
 
 サイドパネルにエラーが出る場合は、まずターミナルで `codex` が起動できるか確認してください。

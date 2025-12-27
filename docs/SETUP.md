@@ -61,6 +61,20 @@ chmod +x native_host/run_host.sh
 補足：サイドパネルの「会話を続ける」がONなら、同じCodexセッションを `codex exec resume` で再開して連続で質問できます（Chromeを閉じるまで）。「新しい会話」でリセットできます。
 補足：回答はMarkdownをHTMLに変換して表示します（コードブロック/箇条書き/リンク等）。
 
+## ログ（デバッグ用）
+
+Native Host は次にログを出します：
+
+```text
+/tmp/chrome_extension_codex_terminal/native_host.log
+```
+
+例：
+
+```bash
+tail -f /tmp/chrome_extension_codex_terminal/native_host.log
+```
+
 （手動でやる場合）
 1. 拡張アイコンをクリック（サイドパネルが開く）
 2. サイドパネルで「接続」を押す

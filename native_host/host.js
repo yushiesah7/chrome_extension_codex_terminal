@@ -13,12 +13,45 @@ import {
 const MAX_CHUNK = 64 * 1024;
 const MAX_MSG_LEN = 1024 * 1024; // 1MB safeguard
 
+const LOG_FILE = path.join(DEFAULT_WORKDIR, 'native_host.log');
+const PATH_SEP = process.platform === 'win32' ? ';' : ':';
+
 /** @type {import('node-pty').IPty | null} */
 let ptyProcess = null;
 
 /** @type {import('node:child_process').ChildProcessWithoutNullStreams | null} */
 let codexProcess = null;
 let codexTimeout = null;
+
+function logLine(line) {
+  try {
+    const ts = new Date().toISOString();
+    fs.appendFileSync(LOG_FILE, `[${ts}] ${line}\n`, { encoding: 'utf8' });
+  } catch {
+    // ignore
+  }
+}
+
+function ensureWorkdir() {
+  try {
+    fs.mkdirSync(DEFAULT_WORKDIR, { recursive: true, mode: 0o700 });
+    try {
+      fs.chmodSync(DEFAULT_WORKDIR, 0o700);
+    } catch {
+      // ignore
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function augmentPath(dir, currentPath) {
+  const p = typeof currentPath === 'string' ? currentPath : '';
+  if (!dir) return p;
+  const parts = p.split(PATH_SEP).filter(Boolean);
+  if (!parts.includes(dir)) parts.unshift(dir);
+  return parts.join(PATH_SEP);
+}
 
 // Native Messaging形式でJSONメッセージを送る（4byte長+UTF-8 JSON）
 function sendMessage(obj) {
@@ -94,16 +127,7 @@ function runCodex({ prompt, threadId }) {
   }
 
   // 安全のため、codex exec の作業ディレクトリは /tmp 配下に固定
-  try {
-    fs.mkdirSync(DEFAULT_WORKDIR, { recursive: true, mode: 0o700 });
-    try {
-      fs.chmodSync(DEFAULT_WORKDIR, 0o700);
-    } catch {
-      // ignore
-    }
-  } catch {
-    // ignore（後でcodex側が失敗したらエラーになる）
-  }
+  ensureWorkdir();
 
   const codexBin = findCodexBin();
   /** @type {string[]} */
@@ -130,13 +154,23 @@ function runCodex({ prompt, threadId }) {
     text: resumeId ? 'Codexセッションを再開...' : 'Codexに問い合わせ中...'
   });
 
+  const nodeBinDir = path.dirname(process.execPath);
+  const env = {
+    ...process.env,
+    // `codex` は shebang (`/usr/bin/env node`) で起動されるため、Chrome(GUI)の薄いPATHだと失敗しやすい。
+    // host を動かしている node の bin を PATH 先頭に足しておく。
+    PATH: augmentPath(nodeBinDir, process.env.PATH),
+    // JSON出力のため ANSI は不要だが、念のため
+    TERM: 'dumb'
+  };
+
+  logLine(
+    `codex spawn: bin=${codexBin} resume=${resumeId ? resumeId.slice(0, 8) + '…' : '(new)'} node=${process.execPath} PATH.head=${env.PATH.split(PATH_SEP).slice(0, 3).join(PATH_SEP)}`
+  );
+
   const child = spawn(codexBin, args, {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      // JSON出力のため ANSI は不要だが、念のため
-      TERM: 'dumb'
-    }
+    env
   });
 
   codexProcess = child;
@@ -189,6 +223,7 @@ function runCodex({ prompt, threadId }) {
       clearTimeout(codexTimeout);
       codexTimeout = null;
     }
+    logLine(`codex error: ${String(e)}`);
     sendMessage({ type: 'codex_error', text: String(e) });
     sendMessage({ type: 'codex_done' });
   });
@@ -220,6 +255,7 @@ function runCodex({ prompt, threadId }) {
 
     if (code !== 0) {
       const err = stderr.trim() ? stderr.trim() : `codex exec failed (code=${String(code)}, signal=${String(signal)})`;
+      logLine(`codex exit: code=${String(code)} signal=${String(signal)} stderr.tail=${err.slice(-500)}`);
       sendMessage({ type: 'codex_error', text: err });
     }
 
@@ -284,6 +320,9 @@ function startShell({ cwd }) {
     sendMessage({ type: 'status', text: `ディレクトリ作成失敗: ${resolvedCwd}` });
     return;
   }
+
+  // ついでにログ先ディレクトリも確保
+  ensureWorkdir();
 
   const SHELL_CANDIDATES = [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'];
   const shell = SHELL_CANDIDATES.find((s) => s && fs.existsSync(s)) || '/bin/sh';
@@ -396,4 +435,6 @@ process.stdin.on('end', () => {
 });
 
 // Initial status
+ensureWorkdir();
+logLine(`native host started: node=${process.execPath}`);
 sendMessage({ type: 'status', text: 'Native host ready' });
