@@ -812,6 +812,9 @@ promptInput.addEventListener('input', () => {
 
 promptInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
+    // 日本語IMEなどの変換確定Enter中に送信すると、確定文字が送信後に入力欄へ残ることがある
+    // (isComposing / keyCode 229 はIME中の代表的なシグナル)
+    if (e.isComposing || e.keyCode === 229) return;
     e.preventDefault();
     submitPrompt();
   }
