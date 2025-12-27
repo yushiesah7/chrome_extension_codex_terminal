@@ -10,41 +10,46 @@
     <header class="topbar">
       <div class="brand">
         <div class="brandTitle">Codex Terminal</div>
-        <div class="brandMeta">UI Mock（ロジックなし）</div>
+        <div class="brandMeta">UI Mock（見た目/動きだけ）</div>
       </div>
       <div class="topbarRight">
-        <button class="btn" disabled>接続</button>
-        <button class="btn" disabled>切断</button>
+        <button id="resetBtn" class="btn">リセット</button>
       </div>
     </header>
 
     <main class="main">
-      <section class="composer">
-        <div class="composerRow">
-          <button class="iconBtn" aria-label="attach" title="画像/ファイル（モック）">＋</button>
-          <input class="composerInput" type="text" placeholder="質問してみましょう（テキスト/コピペ想定）" />
-          <button class="sendBtn" disabled title="モックのため送信不可">送信</button>
+      <div id="chat" class="chat" aria-label="conversation">
+        <div class="messageRow assistant">
+          <div class="bubble assistant markdown">
+            <p><strong>モックです。</strong> ここでUIの見た目だけ先に詰められます。</p>
+            <ul>
+              <li>テキストを入力して送信</li>
+              <li>画像を貼り付け/ドラッグ/「＋」で添付</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <footer class="composer" aria-label="composer">
+        <div id="attachments" class="attachments" hidden></div>
+        <div id="dropZone" class="composerRow">
+          <button id="attachBtn" class="iconBtn" aria-label="attach" title="画像を添付">＋</button>
+          <textarea
+            id="promptInput"
+            class="composerInput"
+            rows="1"
+            placeholder="質問してみましょう（テキスト/コピペ/画像貼り付け）"
+            spellcheck="false"
+          ></textarea>
+          <button id="sendBtn" class="sendBtn" disabled>送信</button>
         </div>
         <div class="hint">
-          ここは見た目確認用です。実際の拡張は Native Messaging 経由で `codex` を実行します。
+          Enterで送信 / Shift+Enterで改行。実際の拡張は Native Messaging 経由で `codex` を実行します。
         </div>
-      </section>
-
-      <section class="answerCard">
-        <div class="answerHeader">
-          <div class="answerTitle">回答</div>
-          <div class="answerMeta">Markdown表示イメージ</div>
-        </div>
-        <div class="answerBody">
-          <h3>これはモックです</h3>
-          <p>実際の回答は、拡張機能側で <code>codex exec</code> の結果を受け取り表示します。</p>
-          <ul>
-            <li>箇条書き</li>
-            <li><a href="#">リンク</a></li>
-          </ul>
-          <pre><code>const hello = "world";</code></pre>
-        </div>
-      </section>
+        <input id="fileInput" class="hidden" type="file" accept="image/*" multiple />
+      </footer>
     </main>
+
+    <script src="./app.js"></script>
   </body>
 </html>
