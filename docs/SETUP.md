@@ -4,12 +4,13 @@
 
 ## 目的
 
-- Chrome拡張（Side Panel）から Native Messaging 経由でローカル `zsh` を起動し、入出力を表示する。
+- Chrome拡張（Side Panel）から Native Messaging 経由でローカルの `codex`（Codex CLI）を実行し、選択テキストについて質問して回答を表示する。
 
 ## 事前条件
 
 - Node.js が入っている（推奨: nvm 等）
 - Chrome（Manifest V3）
+- ローカルで `codex` コマンドが動く（ターミナルで `codex --help` が通ること）
 - `node-pty` のビルド用に Xcode Command Line Tools が必要な場合あり（未導入なら `xcode-select --install`）
 
 ## 1. Native Host を準備
@@ -20,6 +21,8 @@ Native Host の依存関係を入れる：
 cd native_host
 npm ci # または npm install
 ```
+
+補足：`npm ci` / `npm install` が必要なのは `native_host/` 側だけです（`extension/` はそのままChromeに読み込む）。
 
 Native host を実行可能にする：
 
@@ -51,10 +54,31 @@ chmod +x native_host/run_host.sh
 ## 4. 動作確認
 
 1. Chromeで任意のページを開く
-2. 拡張アイコンをクリック（サイドパネルが開く）
-3. サイドパネルで「接続」を押す
-4. `echo hello` を打って Enter
-5. `codex` を打って起動できることを確認
+2. ページ上の文章をドラッグして選択
+3. 右クリック → **「Codexに聞く（選択範囲）」**
+4. サイドパネルが開き、回答が表示されればOK
+
+補足：サイドパネルの「会話を続ける」がONなら、同じCodexセッションを `codex exec resume` で再開して連続で質問できます（Chromeを閉じるまで）。「新しい会話」でリセットできます。
+補足：回答はMarkdownをHTMLに変換して表示します（コードブロック/箇条書き/リンク等）。
+
+## ログ（デバッグ用）
+
+Native Host は次にログを出します：
+
+```text
+/tmp/chrome_extension_codex_terminal/native_host.log
+```
+
+例：
+
+```bash
+tail -f /tmp/chrome_extension_codex_terminal/native_host.log
+```
+
+（手動でやる場合）
+1. 拡張アイコンをクリック（サイドパネルが開く）
+2. サイドパネルで「接続」を押す
+3. 選択テキスト欄に貼り付けて「Codexに聞く」
 
 ## トラブルシュート
 

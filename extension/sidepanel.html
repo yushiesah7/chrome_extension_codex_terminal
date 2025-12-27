@@ -16,26 +16,42 @@
         <button id="disconnectBtn" class="btn" disabled>切断</button>
       </div>
       <div class="row">
-        <label class="label" for="cwdSelect">起動ディレクトリ</label>
-        <!-- 許可された作業ディレクトリの選択肢 -->
-        <select id="cwdSelect" class="select">
-          <option value="/tmp/chrome_extension_codex_terminal">/tmp/chrome_extension_codex_terminal</option>
-          <option value="~/Downloads">~/Downloads</option>
-        </select>
+        <label class="label" for="question">質問</label>
+        <input id="question" class="input" type="text" autocomplete="off" spellcheck="false" />
+        <button id="askBtn" class="btn" disabled>Codexに聞く</button>
+        <button id="clearBtn" class="btn">クリア</button>
+      </div>
+      <div class="row rowTight">
+        <label class="checkbox">
+          <input id="keepSession" type="checkbox" checked />
+          会話を続ける（セッション）
+        </label>
+        <div id="sessionMeta" class="meta"></div>
+        <button id="newSessionBtn" class="btn">新しい会話</button>
       </div>
       <div id="status" class="status">未接続</div>
     </header>
 
     <main class="main">
-      <pre id="terminal" class="terminal" aria-label="terminal output"></pre>
-      <div class="inputRow">
-        <span class="prompt">❯</span>
-        <!-- 1行ずつコマンドを送信 -->
-        <input id="input" class="input" type="text" autocomplete="off" spellcheck="false" disabled />
-      </div>
+      <section class="panel">
+        <div class="panelHeader">
+          <div class="panelTitle">選択テキスト</div>
+          <div id="pageUrl" class="panelMeta"></div>
+        </div>
+        <textarea id="selection" class="textarea" spellcheck="false" placeholder="ここに選択テキストが入ります（右クリック → Codexに聞く（選択範囲）でもOK）"></textarea>
+      </section>
+
+      <section class="panel">
+        <div class="panelHeader">
+          <div class="panelTitle">回答</div>
+        </div>
+        <div id="answer" class="answer markdown" aria-label="codex answer"></div>
+      </section>
     </main>
 
     <!-- サイドパネルの挙動（Native Messaging 連携） -->
+    <script src="vendor/marked.umd.js"></script>
+    <script src="vendor/purify.min.js"></script>
     <script src="sidepanel.js"></script>
   </body>
 </html>

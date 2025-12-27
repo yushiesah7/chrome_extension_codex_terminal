@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Codex Terminal UI Mock</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brandTitle">Codex Terminal</div>
+        <div class="brandMeta">UI Mock（見た目/動きだけ）</div>
+      </div>
+      <div class="topbarRight">
+        <div class="settings">
+          <button id="settingsBtn" class="btn ghost">設定 ▾</button>
+          <div id="settingsMenu" class="settingsMenu" hidden>
+            <button class="menuItem" data-action="prompt">プロンプト</button>
+            <button class="menuItem" data-action="start-ci">起動CIコマンド</button>
+            <button class="menuItem" data-action="restart-ci">CIリスタート</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <div id="chat" class="chat" aria-label="conversation">
+      </div>
+      <div id="panelOverlay" class="panelOverlay" hidden></div>
+      <aside id="settingsPanel" class="settingsPanel" aria-label="settings panel" hidden>
+        <div class="panelHeader">
+          <div id="panelTitle" class="panelTitle">設定</div>
+          <button id="panelClose" class="iconBtn ghost" aria-label="close panel">×</button>
+        </div>
+        <div id="panelBody" class="panelBody">
+          <p class="muted">ここに設定内容を表示します。</p>
+        </div>
+      </aside>
+
+      <footer class="composer" aria-label="composer">
+        <div id="attachments" class="attachments" hidden></div>
+        <div id="dropZone" class="composerRow">
+          <button id="attachBtn" class="iconBtn" aria-label="attach" title="画像を添付">＋</button>
+          <textarea
+            id="promptInput"
+            class="composerInput"
+            rows="1"
+            placeholder="質問してみましょう（テキスト/コピペ/画像貼り付け）"
+            spellcheck="false"
+          ></textarea>
+          <button id="clearBtn" class="sendBtn" aria-label="clear input">×</button>
+        </div>
+        <div class="hint">
+          Enterで送信 / Shift+Enterで改行。実際の拡張は Native Messaging 経由で `codex` を実行します。
+        </div>
+        <input id="fileInput" class="hidden" type="file" accept="image/*" multiple />
+      </footer>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
