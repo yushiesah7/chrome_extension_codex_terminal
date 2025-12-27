@@ -9,6 +9,13 @@ const STORAGE_KEY_CI_START_CMD = 'ciStartCommand';
 const STORAGE_KEY_CI_RESTART_CMD = 'ciRestartCommand';
 const STORAGE_KEY_CODEX_MODEL = 'codexModel';
 
+const MODEL_PRESETS = [
+  { value: '', label: 'デフォルト（config.toml）' },
+  { value: 'o3', label: 'o3' },
+  { value: 'gpt-5.2', label: 'gpt-5.2' },
+  { value: 'gpt-5.2-codex', label: 'gpt-5.2-codex' }
+];
+
 const RAW_CHUNK_SIZE = 256 * 1024; // base64化しても1MB未満に収めやすいサイズ
 const MAX_ATTACHMENTS = 4;
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -218,6 +225,12 @@ function formatModelForMeta(value) {
   if (!v) return '';
   if (v.length <= 18) return v;
   return v.slice(0, 18) + '…';
+}
+
+function toModelPreset(value) {
+  const v = safeString(value).trim();
+  if (MODEL_PRESETS.some((m) => m.value === v)) return v;
+  return '__custom__';
 }
 
 async function loadCodexModel() {
@@ -1253,17 +1266,39 @@ settingsMenu?.addEventListener('click', (e) => {
 
       const label = document.createElement('label');
       label.className = 'panelLabel';
-      label.textContent = 'Codexモデル（空欄でデフォルト）';
+      label.textContent = 'Codexモデル';
+
+      const select = document.createElement('select');
+      select.className = 'panelSelect';
+
+      for (const opt of MODEL_PRESETS) {
+        const o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label;
+        select.appendChild(o);
+      }
+
+      const customOpt = document.createElement('option');
+      customOpt.value = '__custom__';
+      customOpt.textContent = codexModel ? `カスタム（現在: ${formatModelForMeta(codexModel)}）` : 'カスタム';
+      select.appendChild(customOpt);
+      select.value = toModelPreset(codexModel);
 
       const input = document.createElement('input');
       input.className = 'panelInput';
       input.type = 'text';
-      input.placeholder = '例: o3';
+      input.placeholder = 'カスタムモデル名（任意）';
       input.value = codexModel;
 
       const hint = document.createElement('p');
       hint.className = 'muted';
-      hint.textContent = '空欄なら ~/.codex/config.toml の model を使用します。切り替えたら「新しい会話」推奨。';
+      hint.textContent =
+        'プリセットから選ぶか、カスタムで手入力できます。空欄なら ~/.codex/config.toml の model を使用します。切り替えたら「新しい会話」推奨。';
+
+      select.addEventListener('change', () => {
+        if (select.value === '__custom__') return;
+        input.value = select.value;
+      });
 
       const actions = document.createElement('div');
       actions.className = 'panelActions';
@@ -1296,11 +1331,13 @@ settingsMenu?.addEventListener('click', (e) => {
       });
 
       resetBtn.addEventListener('click', () => {
+        select.value = '';
         input.value = '';
         saveCodexModel('').catch(() => {});
       });
 
       group.appendChild(label);
+      group.appendChild(select);
       group.appendChild(input);
       group.appendChild(hint);
       container.appendChild(group);

@@ -416,12 +416,31 @@ body {
   height: 40px;
 }
 
+.panelSelect {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  height: 40px;
+  appearance: none;
+}
+
 .panelTextarea:focus {
   border-color: rgba(88, 166, 255, 0.55);
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.18);
 }
 
 .panelInput:focus {
+  border-color: rgba(88, 166, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.18);
+}
+
+.panelSelect:focus {
   border-color: rgba(88, 166, 255, 0.55);
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.18);
 }
