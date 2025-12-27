@@ -92,6 +92,15 @@ cp native_host/com.yushi.chrome_extension_codex_terminal.json.template \
 サイドパネル右上の「設定 ▾」→「プロンプト」から、**毎回自動で先頭に付ける前提プロンプト**を編集できます。
 （例：出力形式、語り口、Mermaidを出すか等）
 
+### Codexのモデルを変えたい
+
+サイドパネル右上の「設定 ▾」→「モデル」から、`codex exec` に渡すモデル名を指定できます。
+
+- 空欄：デフォルト（`~/.codex/config.toml` の `model`）を使用
+- 入力：この拡張からの実行だけに反映（グローバル設定は変更しません）
+
+補足：モデルを切り替えたら「設定 ▾」→「新しい会話」でセッションをリセットするのがおすすめです。
+
 ## トラブルシューティング
 
 ### `Failed to start native messaging host.`

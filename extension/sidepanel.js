@@ -7,6 +7,7 @@ const STORAGE_KEY_PROMPT_TEMPLATE = 'promptTemplate';
 const STORAGE_KEY_START_CMD = 'startCommand';
 const STORAGE_KEY_CI_START_CMD = 'ciStartCommand';
 const STORAGE_KEY_CI_RESTART_CMD = 'ciRestartCommand';
+const STORAGE_KEY_CODEX_MODEL = 'codexModel';
 
 const RAW_CHUNK_SIZE = 256 * 1024; // base64化しても1MB未満に収めやすいサイズ
 const MAX_ATTACHMENTS = 4;
@@ -63,6 +64,9 @@ let ciStartCommand = DEFAULT_CODEX_CMD;
 
 /** @type {string} */
 let ciRestartCommand = DEFAULT_CI_RESTART_CMD;
+
+/** @type {string} */
+let codexModel = '';
 
 /** @type {{id:string, file:File, previewUrl:string}[]} */
 let attachments = [];
@@ -202,10 +206,46 @@ async function saveCiRestartCommand(value) {
   }
 }
 
+function isValidCodexModel(value) {
+  const v = safeString(value).trim();
+  if (!v) return true;
+  // codex CLI のモデル名は英数字/._- で扱えるものに限定（不正値はそのまま弾く）
+  return /^[A-Za-z0-9._-]+$/.test(v) && v.length <= 64;
+}
+
+function formatModelForMeta(value) {
+  const v = safeString(value).trim();
+  if (!v) return '';
+  if (v.length <= 18) return v;
+  return v.slice(0, 18) + '…';
+}
+
+async function loadCodexModel() {
+  try {
+    const data = await chrome.storage.local.get([STORAGE_KEY_CODEX_MODEL]);
+    codexModel = safeString(data[STORAGE_KEY_CODEX_MODEL]).trim();
+  } catch {
+    codexModel = '';
+  }
+}
+
+async function saveCodexModel(value) {
+  const v = safeString(value).trim();
+  if (!isValidCodexModel(v)) throw new Error('モデル名が不正です（英数字/._- のみ、最大64文字）');
+  codexModel = v;
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEY_CODEX_MODEL]: v });
+  } catch {
+    // ignore
+  }
+  updateMeta();
+}
+
 function updateMeta() {
   const parts = [];
   parts.push(isConnected ? '接続: OK' : isConnecting ? '接続: ...' : '接続: NG');
   parts.push(`session: ${threadId ? threadId.slice(0, 8) + '…' : '(new)'}`);
+  if (codexModel) parts.push(`model: ${formatModelForMeta(codexModel)}`);
   metaEl.textContent = parts.join(' / ');
 }
 
@@ -974,6 +1014,7 @@ async function sendMessageToCodex({ userText, selectionText, pageUrl, files }) {
 
   const payload = { type: 'codex', requestId, prompt };
   if (threadId) payload.threadId = threadId;
+  if (codexModel) payload.model = codexModel;
   if (imageIds.length) payload.imageIds = imageIds;
 
   port.postMessage(payload);
@@ -1205,6 +1246,78 @@ settingsMenu?.addEventListener('click', (e) => {
     return;
   }
 
+  if (action === 'model') {
+    showPanel('モデル', (container) => {
+      const group = document.createElement('div');
+      group.className = 'panelGroup';
+
+      const label = document.createElement('label');
+      label.className = 'panelLabel';
+      label.textContent = 'Codexモデル（空欄でデフォルト）';
+
+      const input = document.createElement('input');
+      input.className = 'panelInput';
+      input.type = 'text';
+      input.placeholder = '例: o3';
+      input.value = codexModel;
+
+      const hint = document.createElement('p');
+      hint.className = 'muted';
+      hint.textContent = '空欄なら ~/.codex/config.toml の model を使用します。切り替えたら「新しい会話」推奨。';
+
+      const actions = document.createElement('div');
+      actions.className = 'panelActions';
+
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'btn';
+      saveBtn.type = 'button';
+      saveBtn.textContent = '保存';
+
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'btn ghost';
+      resetBtn.type = 'button';
+      resetBtn.textContent = 'デフォルトに戻す';
+
+      saveBtn.addEventListener('click', () => {
+        saveCodexModel(input.value)
+          .then(() => {
+            container.innerHTML = '';
+            const p = document.createElement('p');
+            p.className = 'muted';
+            p.textContent = codexModel ? `保存しました（model: ${codexModel}）` : '保存しました（デフォルト）';
+            container.appendChild(p);
+          })
+          .catch((e) => {
+            const p = document.createElement('p');
+            p.className = 'muted';
+            p.textContent = `保存できませんでした: ${String(e)}`;
+            container.appendChild(p);
+          });
+      });
+
+      resetBtn.addEventListener('click', () => {
+        input.value = '';
+        saveCodexModel('').catch(() => {});
+      });
+
+      group.appendChild(label);
+      group.appendChild(input);
+      group.appendChild(hint);
+      container.appendChild(group);
+
+      actions.appendChild(saveBtn);
+      actions.appendChild(resetBtn);
+      container.appendChild(actions);
+
+      try {
+        input.focus();
+      } catch {
+        // ignore
+      }
+    });
+    return;
+  }
+
   if (action === 'start-ci') {
     showPanel('起動CIコマンド', (container) => {
       const group = document.createElement('div');
@@ -1327,6 +1440,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 async function init() {
   await loadPromptTemplate();
   await loadCiCommands();
+  await loadCodexModel();
   toggleSettingsMenu(false);
   hidePanel();
   const data = await chrome.storage.session.get([STORAGE_KEY_THREAD_ID]);
