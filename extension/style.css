@@ -26,6 +26,10 @@ body {
   display: none;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 .topbar {
   display: flex;
   align-items: center;

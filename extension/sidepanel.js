@@ -856,6 +856,8 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 async function init() {
   await loadPromptTemplate();
+  toggleSettingsMenu(false);
+  hidePanel();
   const data = await chrome.storage.session.get([STORAGE_KEY_THREAD_ID]);
   threadId = safeString(data[STORAGE_KEY_THREAD_ID]);
   updateMeta();
