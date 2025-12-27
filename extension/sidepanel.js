@@ -8,6 +8,7 @@ const STORAGE_KEY_START_CMD = 'startCommand';
 const STORAGE_KEY_CI_START_CMD = 'ciStartCommand';
 const STORAGE_KEY_CI_RESTART_CMD = 'ciRestartCommand';
 const STORAGE_KEY_CODEX_MODEL = 'codexModel';
+const STORAGE_KEY_CODEX_EFFORT = 'codexReasoningEffort';
 
 const MODEL_PRESETS = [
   { value: '', label: 'デフォルト（config.toml）' },
@@ -15,6 +16,14 @@ const MODEL_PRESETS = [
   { value: 'gpt-5.1-codex-max', label: 'gpt-5.1-codex-max' },
   { value: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
   { value: 'gpt-5.2', label: 'gpt-5.2' }
+];
+
+const EFFORT_PRESETS = [
+  { value: '', label: 'デフォルト（modelごと）' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'Extra high' }
 ];
 
 const RAW_CHUNK_SIZE = 256 * 1024; // base64化しても1MB未満に収めやすいサイズ
@@ -75,6 +84,9 @@ let ciRestartCommand = DEFAULT_CI_RESTART_CMD;
 
 /** @type {string} */
 let codexModel = '';
+
+/** @type {string} */
+let codexReasoningEffort = '';
 
 /** @type {{id:string, file:File, previewUrl:string}[]} */
 let attachments = [];
@@ -221,6 +233,11 @@ function isValidCodexModel(value) {
   return /^[A-Za-z0-9._-]+$/.test(v) && v.length <= 64;
 }
 
+function isValidReasoningEffort(value) {
+  const v = safeString(value).trim();
+  return EFFORT_PRESETS.some((e) => e.value === v);
+}
+
 function formatModelForMeta(value) {
   const v = safeString(value).trim();
   if (!v) return '';
@@ -243,6 +260,16 @@ async function loadCodexModel() {
   }
 }
 
+async function loadCodexEffort() {
+  try {
+    const data = await chrome.storage.local.get([STORAGE_KEY_CODEX_EFFORT]);
+    const v = safeString(data[STORAGE_KEY_CODEX_EFFORT]).trim();
+    codexReasoningEffort = isValidReasoningEffort(v) ? v : '';
+  } catch {
+    codexReasoningEffort = '';
+  }
+}
+
 async function saveCodexModel(value) {
   const v = safeString(value).trim();
   if (!isValidCodexModel(v)) throw new Error('モデル名が不正です（英数字/._- のみ、最大64文字）');
@@ -255,11 +282,24 @@ async function saveCodexModel(value) {
   updateMeta();
 }
 
+async function saveCodexEffort(value) {
+  const v = safeString(value).trim();
+  if (!isValidReasoningEffort(v)) throw new Error('推論レベルが不正です');
+  codexReasoningEffort = v;
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEY_CODEX_EFFORT]: v });
+  } catch {
+    // ignore
+  }
+  updateMeta();
+}
+
 function updateMeta() {
   const parts = [];
   parts.push(isConnected ? '接続: OK' : isConnecting ? '接続: ...' : '接続: NG');
   parts.push(`session: ${threadId ? threadId.slice(0, 8) + '…' : '(new)'}`);
   if (codexModel) parts.push(`model: ${formatModelForMeta(codexModel)}`);
+  if (codexReasoningEffort) parts.push(`effort: ${codexReasoningEffort}`);
   metaEl.textContent = parts.join(' / ');
 }
 
@@ -1029,6 +1069,7 @@ async function sendMessageToCodex({ userText, selectionText, pageUrl, files }) {
   const payload = { type: 'codex', requestId, prompt };
   if (threadId) payload.threadId = threadId;
   if (codexModel) payload.model = codexModel;
+  if (codexReasoningEffort) payload.reasoningEffort = codexReasoningEffort;
   if (imageIds.length) payload.imageIds = imageIds;
 
   port.postMessage(payload);
@@ -1291,10 +1332,24 @@ settingsMenu?.addEventListener('click', (e) => {
       input.placeholder = 'カスタムモデル名（任意）';
       input.value = codexModel;
 
+      const effortLabel = document.createElement('label');
+      effortLabel.className = 'panelLabel';
+      effortLabel.textContent = '推論レベル（Reasoning Effort）';
+
+      const effortSelect = document.createElement('select');
+      effortSelect.className = 'panelSelect';
+      for (const opt of EFFORT_PRESETS) {
+        const o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label;
+        effortSelect.appendChild(o);
+      }
+      effortSelect.value = isValidReasoningEffort(codexReasoningEffort) ? codexReasoningEffort : '';
+
       const hint = document.createElement('p');
       hint.className = 'muted';
       hint.textContent =
-        'プリセットから選ぶか、カスタムで手入力できます。空欄なら ~/.codex/config.toml の model を使用します。切り替えたら「新しい会話」推奨。';
+        'プリセットから選ぶか、カスタムで手入力できます。空欄なら ~/.codex/config.toml の model / effort を使用します。切り替えたら「新しい会話」推奨。';
 
       select.addEventListener('change', () => {
         if (select.value === '__custom__') return;
@@ -1315,12 +1370,14 @@ settingsMenu?.addEventListener('click', (e) => {
       resetBtn.textContent = 'デフォルトに戻す';
 
       saveBtn.addEventListener('click', () => {
-        saveCodexModel(input.value)
+        Promise.all([saveCodexModel(input.value), saveCodexEffort(effortSelect.value)])
           .then(() => {
             container.innerHTML = '';
             const p = document.createElement('p');
             p.className = 'muted';
-            p.textContent = codexModel ? `保存しました（model: ${codexModel}）` : '保存しました（デフォルト）';
+            const modelText = codexModel ? `model: ${codexModel}` : 'model: (default)';
+            const effortText = codexReasoningEffort ? `effort: ${codexReasoningEffort}` : 'effort: (default)';
+            p.textContent = `保存しました（${modelText}, ${effortText}）`;
             container.appendChild(p);
           })
           .catch((e) => {
@@ -1334,12 +1391,15 @@ settingsMenu?.addEventListener('click', (e) => {
       resetBtn.addEventListener('click', () => {
         select.value = '';
         input.value = '';
-        saveCodexModel('').catch(() => {});
+        effortSelect.value = '';
+        Promise.all([saveCodexModel(''), saveCodexEffort('')]).catch(() => {});
       });
 
       group.appendChild(label);
       group.appendChild(select);
       group.appendChild(input);
+      group.appendChild(effortLabel);
+      group.appendChild(effortSelect);
       group.appendChild(hint);
       container.appendChild(group);
 
@@ -1479,6 +1539,7 @@ async function init() {
   await loadPromptTemplate();
   await loadCiCommands();
   await loadCodexModel();
+  await loadCodexEffort();
   toggleSettingsMenu(false);
   hidePanel();
   const data = await chrome.storage.session.get([STORAGE_KEY_THREAD_ID]);

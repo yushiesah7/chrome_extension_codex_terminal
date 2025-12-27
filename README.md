@@ -99,7 +99,9 @@ cp native_host/com.yushi.chrome_extension_codex_terminal.json.template \
 - 空欄：デフォルト（`~/.codex/config.toml` の `model`）を使用
 - 入力：この拡張からの実行だけに反映（グローバル設定は変更しません）
 
-補足：モデルを切り替えたら「設定 ▾」→「新しい会話」でセッションをリセットするのがおすすめです。
+同じ画面で **推論レベル（Reasoning Effort）** も選べます（Low / Medium / High / Extra high）。
+
+補足：モデル/推論レベルを切り替えたら「設定 ▾」→「新しい会話」でセッションをリセットするのがおすすめです。
 
 ## トラブルシューティング
 

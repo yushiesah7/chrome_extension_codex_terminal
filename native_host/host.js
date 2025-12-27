@@ -139,6 +139,13 @@ function parseSafeModel(raw) {
   return value;
 }
 
+function parseSafeReasoningEffort(raw) {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (!value) return '';
+  if (!['low', 'medium', 'high', 'xhigh'].includes(value)) throw new Error('reasoningEffort が不正です');
+  return value;
+}
+
 function extForMime(mimeType) {
   const t = typeof mimeType === 'string' ? mimeType.toLowerCase() : '';
   if (t === 'image/png') return '.png';
@@ -223,7 +230,7 @@ function cancelCodex() {
   }
 }
 
-function runCodex({ prompt, threadId, imagePaths, requestId, model }) {
+function runCodex({ prompt, threadId, imagePaths, requestId, model, reasoningEffort }) {
   cancelCodex();
 
   if (typeof prompt !== 'string' || !prompt.trim()) {
@@ -237,10 +244,12 @@ function runCodex({ prompt, threadId, imagePaths, requestId, model }) {
 
   const codexBin = findCodexBin();
   const modelName = typeof model === 'string' ? model.trim() : '';
+  const effortName = typeof reasoningEffort === 'string' ? reasoningEffort.trim() : '';
   const images = Array.isArray(imagePaths) ? imagePaths.filter((p) => typeof p === 'string' && p) : [];
   /** @type {string[]} */
   const args = ['exec'];
   if (modelName) args.push('-c', `model="${modelName}"`);
+  if (effortName) args.push('-c', `model_reasoning_effort="${effortName}"`);
   args.push('--skip-git-repo-check', '--sandbox', 'read-only', '--color', 'never', '--json', '-C', DEFAULT_WORKDIR);
 
   let resumeId = typeof threadId === 'string' ? threadId.trim() : '';
@@ -274,7 +283,7 @@ function runCodex({ prompt, threadId, imagePaths, requestId, model }) {
   };
 
   logLine(
-    `codex spawn: req=${requestId ? String(requestId).slice(0, 8) + '…' : '(none)'} images=${images.length} model=${modelName || '(default)'} bin=${codexBin} resume=${resumeId ? resumeId.slice(0, 8) + '…' : '(new)'} node=${process.execPath} PATH.head=${env.PATH.split(PATH_SEP).slice(0, 3).join(PATH_SEP)}`
+    `codex spawn: req=${requestId ? String(requestId).slice(0, 8) + '…' : '(none)'} images=${images.length} model=${modelName || '(default)'} effort=${effortName || '(default)'} bin=${codexBin} resume=${resumeId ? resumeId.slice(0, 8) + '…' : '(new)'} node=${process.execPath} PATH.head=${env.PATH.split(PATH_SEP).slice(0, 3).join(PATH_SEP)}`
   );
 
   const runViaNode = shouldRunScriptViaNode(codexBin);
@@ -593,6 +602,7 @@ function handleMessage(msg) {
     /** @type {string[]} */
     const imagePaths = [];
     let modelName = '';
+    let effortName = '';
     try {
       const imageIds = Array.isArray(msg.imageIds) ? msg.imageIds : [];
       if (imageIds.length) {
@@ -610,6 +620,7 @@ function handleMessage(msg) {
       }
 
       modelName = parseSafeModel(msg.model);
+      effortName = parseSafeReasoningEffort(msg.reasoningEffort);
     } catch (e) {
       sendMessage({ type: 'codex_error', text: String(e) });
       sendMessage({ type: 'codex_done' });
@@ -621,7 +632,8 @@ function handleMessage(msg) {
       threadId: typeof msg.threadId === 'string' ? msg.threadId : undefined,
       imagePaths,
       requestId: typeof msg.requestId === 'string' ? msg.requestId : undefined,
-      model: modelName || undefined
+      model: modelName || undefined,
+      reasoningEffort: effortName || undefined
     });
     return;
   }
