@@ -14,7 +14,11 @@ const MAX_CHUNK = 64 * 1024;
 const MAX_MSG_LEN = 1024 * 1024; // 1MB safeguard
 
 const LOG_FILE = path.join(DEFAULT_WORKDIR, 'native_host.log');
+const UPLOAD_ROOT = path.join(DEFAULT_WORKDIR, 'uploads');
 const PATH_SEP = process.platform === 'win32' ? ';' : ':';
+const UPLOAD_TTL_MS = 10 * 60 * 1000;
+const MAX_UPLOAD_IMAGES = 4;
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 /** @type {import('node-pty').IPty | null} */
 let ptyProcess = null;
@@ -22,6 +26,13 @@ let ptyProcess = null;
 /** @type {import('node:child_process').ChildProcessWithoutNullStreams | null} */
 let codexProcess = null;
 let codexTimeout = null;
+let codexRequestId = null;
+
+/**
+ * requestId -> { dir, createdAt, images: Map<imageId, { path, expectedSize, bytes, nextSeq, done }> }
+ * @type {Map<string, {dir:string, createdAt:number, images: Map<string, {path:string, expectedSize:number, bytes:number, nextSeq:number, done:boolean}>}>}
+ */
+const uploads = new Map();
 
 function logLine(line) {
   try {
@@ -37,6 +48,17 @@ function ensureWorkdir() {
     fs.mkdirSync(DEFAULT_WORKDIR, { recursive: true, mode: 0o700 });
     try {
       fs.chmodSync(DEFAULT_WORKDIR, 0o700);
+    } catch {
+      // ignore
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    fs.mkdirSync(UPLOAD_ROOT, { recursive: true, mode: 0o700 });
+    try {
+      fs.chmodSync(UPLOAD_ROOT, 0o700);
     } catch {
       // ignore
     }
@@ -101,23 +123,99 @@ function findCodexBin() {
   return 'codex';
 }
 
-function cancelCodex() {
-  if (!codexProcess) return;
+function parseSafeId(raw, label) {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (!value) throw new Error(`${label} が空です`);
+  if (value.length > 128) throw new Error(`${label} が長すぎます`);
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error(`${label} に不正な文字が含まれます`);
+  return value;
+}
+
+function extForMime(mimeType) {
+  const t = typeof mimeType === 'string' ? mimeType.toLowerCase() : '';
+  if (t === 'image/png') return '.png';
+  if (t === 'image/jpeg' || t === 'image/jpg') return '.jpg';
+  if (t === 'image/webp') return '.webp';
+  if (t === 'image/gif') return '.gif';
+  return '.bin';
+}
+
+function cleanupUpload(requestId) {
+  const state = uploads.get(requestId);
+  if (!state) return;
+  uploads.delete(requestId);
 
   try {
-    codexProcess.kill('SIGTERM');
+    fs.rmSync(state.dir, { recursive: true, force: true });
   } catch {
     // ignore
   }
-  codexProcess = null;
+}
+
+function cleanupExpiredUploads() {
+  const now = Date.now();
+  for (const [requestId, state] of uploads.entries()) {
+    if (now - state.createdAt > UPLOAD_TTL_MS) cleanupUpload(requestId);
+  }
+}
+
+function getOrCreateUploadState(requestId) {
+  cleanupExpiredUploads();
+
+  const existing = uploads.get(requestId);
+  if (existing) return existing;
+
+  ensureWorkdir();
+
+  const dir = path.join(UPLOAD_ROOT, requestId);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(dir, 0o700);
+  } catch {
+    // ignore
+  }
+
+  const state = { dir, createdAt: Date.now(), images: new Map() };
+  uploads.set(requestId, state);
+  return state;
+}
+
+function shouldRunScriptViaNode(filePath) {
+  if (!path.isAbsolute(filePath)) return false;
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(96);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    const head = buf.slice(0, n).toString('utf8');
+    return head.startsWith('#!') && head.toLowerCase().includes('node');
+  } catch {
+    return false;
+  }
+}
+
+function cancelCodex() {
+  if (codexProcess) {
+    try {
+      codexProcess.kill('SIGTERM');
+    } catch {
+      // ignore
+    }
+    codexProcess = null;
+  }
 
   if (codexTimeout) {
     clearTimeout(codexTimeout);
     codexTimeout = null;
   }
+
+  if (codexRequestId) {
+    cleanupUpload(codexRequestId);
+    codexRequestId = null;
+  }
 }
 
-function runCodex({ prompt, threadId }) {
+function runCodex({ prompt, threadId, imagePaths, requestId }) {
   cancelCodex();
 
   if (typeof prompt !== 'string' || !prompt.trim()) {
@@ -130,6 +228,7 @@ function runCodex({ prompt, threadId }) {
   ensureWorkdir();
 
   const codexBin = findCodexBin();
+  const images = Array.isArray(imagePaths) ? imagePaths.filter((p) => typeof p === 'string' && p) : [];
   /** @type {string[]} */
   const args = [
     'exec',
@@ -143,7 +242,16 @@ function runCodex({ prompt, threadId }) {
     DEFAULT_WORKDIR
   ];
 
-  const resumeId = typeof threadId === 'string' ? threadId.trim() : '';
+  let resumeId = typeof threadId === 'string' ? threadId.trim() : '';
+
+  if (resumeId && images.length) {
+    // `codex exec resume` は --image を受け付けないため、画像がある場合は新規セッション扱いにする。
+    logLine('codex: images+resume requested -> start new session');
+    sendMessage({ type: 'status', text: '画像付きの質問は新しいセッションで実行します（codex resume は画像に未対応）' });
+    resumeId = '';
+  }
+
+  if (images.length) args.push('--image', ...images);
   if (resumeId) args.push('resume', resumeId);
 
   // prompt は stdin から渡す（引数は '-'）
@@ -165,15 +273,24 @@ function runCodex({ prompt, threadId }) {
   };
 
   logLine(
-    `codex spawn: bin=${codexBin} resume=${resumeId ? resumeId.slice(0, 8) + '…' : '(new)'} node=${process.execPath} PATH.head=${env.PATH.split(PATH_SEP).slice(0, 3).join(PATH_SEP)}`
+    `codex spawn: req=${requestId ? String(requestId).slice(0, 8) + '…' : '(none)'} images=${images.length} bin=${codexBin} resume=${resumeId ? resumeId.slice(0, 8) + '…' : '(new)'} node=${process.execPath} PATH.head=${env.PATH.split(PATH_SEP).slice(0, 3).join(PATH_SEP)}`
   );
 
-  const child = spawn(codexBin, args, {
+  const runViaNode = shouldRunScriptViaNode(codexBin);
+  const spawnBin = runViaNode ? process.execPath : codexBin;
+  const spawnArgs = runViaNode ? [codexBin, ...args] : args;
+
+  if (runViaNode) {
+    logLine(`codex spawn: run via node (bypass shebang)`);
+  }
+
+  const child = spawn(spawnBin, spawnArgs, {
     stdio: ['pipe', 'pipe', 'pipe'],
     env
   });
 
   codexProcess = child;
+  codexRequestId = typeof requestId === 'string' ? requestId : null;
 
   let stderr = '';
   child.stderr.on('data', (chunk) => {
@@ -223,6 +340,10 @@ function runCodex({ prompt, threadId }) {
       clearTimeout(codexTimeout);
       codexTimeout = null;
     }
+    if (codexRequestId) {
+      cleanupUpload(codexRequestId);
+      codexRequestId = null;
+    }
     logLine(`codex error: ${String(e)}`);
     sendMessage({ type: 'codex_error', text: String(e) });
     sendMessage({ type: 'codex_done' });
@@ -233,6 +354,10 @@ function runCodex({ prompt, threadId }) {
     if (codexTimeout) {
       clearTimeout(codexTimeout);
       codexTimeout = null;
+    }
+    if (codexRequestId) {
+      cleanupUpload(codexRequestId);
+      codexRequestId = null;
     }
 
     // 最後が改行で終わらない場合に備えて、残りを1行として処理する
@@ -366,10 +491,132 @@ function startShell({ cwd }) {
 function handleMessage(msg) {
   if (!msg || typeof msg !== 'object') return;
 
+  if (msg.type === 'upload_image_start') {
+    try {
+      const requestId = parseSafeId(msg.requestId, 'requestId');
+      const imageId = parseSafeId(msg.imageId, 'imageId');
+      const size = Number(msg.size);
+      if (!Number.isFinite(size) || size <= 0) throw new Error('size が不正です');
+      if (size > MAX_IMAGE_BYTES) throw new Error('画像が大きすぎます');
+
+      const state = getOrCreateUploadState(requestId);
+      if (state.images.size >= MAX_UPLOAD_IMAGES && !state.images.has(imageId)) {
+        throw new Error(`画像は最大${MAX_UPLOAD_IMAGES}枚までです`);
+      }
+
+      const ext = extForMime(msg.mimeType);
+      const filePath = path.join(state.dir, `${imageId}${ext}`);
+
+      // 既存ファイルがあれば消す（同じimageIdの再送に備える）
+      try {
+        fs.rmSync(filePath, { force: true });
+      } catch {
+        // ignore
+      }
+
+      fs.writeFileSync(filePath, Buffer.alloc(0), { mode: 0o600 });
+
+      state.images.set(imageId, {
+        path: filePath,
+        expectedSize: size,
+        bytes: 0,
+        nextSeq: 0,
+        done: false
+      });
+
+      logLine(`upload start: req=${requestId.slice(0, 8)}… img=${imageId.slice(0, 8)}… size=${size} path=${filePath}`);
+    } catch (e) {
+      logLine(`upload start error: ${String(e)}`);
+      sendMessage({ type: 'upload_error', requestId: msg.requestId, imageId: msg.imageId, text: String(e) });
+    }
+    return;
+  }
+
+  if (msg.type === 'upload_image_chunk') {
+    try {
+      const requestId = parseSafeId(msg.requestId, 'requestId');
+      const imageId = parseSafeId(msg.imageId, 'imageId');
+      const seq = Number(msg.seq);
+      const data = typeof msg.data === 'string' ? msg.data : '';
+      if (!Number.isFinite(seq) || seq < 0) throw new Error('seq が不正です');
+      if (!data) throw new Error('data が空です');
+
+      const state = uploads.get(requestId);
+      const img = state?.images.get(imageId);
+      if (!state || !img) throw new Error('upload が開始されていません');
+      if (img.done) throw new Error('upload はすでに完了しています');
+      if (seq !== img.nextSeq) throw new Error(`chunk の順序が不正です（expected=${img.nextSeq}, got=${seq}）`);
+
+      const buf = Buffer.from(data, 'base64');
+      if (!buf.length) throw new Error('chunk のデコードに失敗しました');
+      if (img.bytes + buf.length > img.expectedSize) throw new Error('画像サイズが不正です（expected を超過）');
+      if (img.bytes + buf.length > MAX_IMAGE_BYTES) throw new Error('画像が大きすぎます');
+
+      fs.appendFileSync(img.path, buf);
+      img.bytes += buf.length;
+      img.nextSeq += 1;
+    } catch (e) {
+      logLine(`upload chunk error: ${String(e)}`);
+      sendMessage({ type: 'upload_error', requestId: msg.requestId, imageId: msg.imageId, text: String(e) });
+    }
+    return;
+  }
+
+  if (msg.type === 'upload_image_end') {
+    try {
+      const requestId = parseSafeId(msg.requestId, 'requestId');
+      const imageId = parseSafeId(msg.imageId, 'imageId');
+      const chunks = Number(msg.chunks);
+      if (!Number.isFinite(chunks) || chunks < 0) throw new Error('chunks が不正です');
+
+      const state = uploads.get(requestId);
+      const img = state?.images.get(imageId);
+      if (!state || !img) throw new Error('upload が開始されていません');
+      if (img.done) throw new Error('upload はすでに完了しています');
+      if (chunks !== img.nextSeq) throw new Error(`chunks 数が不正です（expected=${img.nextSeq}, got=${chunks}）`);
+      if (img.bytes !== img.expectedSize) {
+        throw new Error(`画像サイズが一致しません（expected=${img.expectedSize}, got=${img.bytes}）`);
+      }
+
+      img.done = true;
+      logLine(`upload done: req=${requestId.slice(0, 8)}… img=${imageId.slice(0, 8)}… bytes=${img.bytes} path=${img.path}`);
+      sendMessage({ type: 'upload_ok', requestId, imageId });
+    } catch (e) {
+      logLine(`upload end error: ${String(e)}`);
+      sendMessage({ type: 'upload_error', requestId: msg.requestId, imageId: msg.imageId, text: String(e) });
+    }
+    return;
+  }
+
   if (msg.type === 'codex' && typeof msg.prompt === 'string') {
+    /** @type {string[]} */
+    const imagePaths = [];
+    try {
+      const imageIds = Array.isArray(msg.imageIds) ? msg.imageIds : [];
+      if (imageIds.length) {
+        const requestId = parseSafeId(msg.requestId, 'requestId');
+        const state = uploads.get(requestId);
+        if (!state) throw new Error('画像が見つかりません（upload state がありません）');
+
+        for (const rawId of imageIds) {
+          const imageId = parseSafeId(rawId, 'imageId');
+          const img = state.images.get(imageId);
+          if (!img) throw new Error(`画像が見つかりません（imageId=${imageId}）`);
+          if (!img.done) throw new Error(`画像の受信が完了していません（imageId=${imageId}）`);
+          imagePaths.push(img.path);
+        }
+      }
+    } catch (e) {
+      sendMessage({ type: 'codex_error', text: String(e) });
+      sendMessage({ type: 'codex_done' });
+      return;
+    }
+
     runCodex({
       prompt: msg.prompt,
-      threadId: typeof msg.threadId === 'string' ? msg.threadId : undefined
+      threadId: typeof msg.threadId === 'string' ? msg.threadId : undefined,
+      imagePaths,
+      requestId: typeof msg.requestId === 'string' ? msg.requestId : undefined
     });
     return;
   }
