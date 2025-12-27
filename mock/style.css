@@ -22,6 +22,10 @@ body {
   flex-direction: column;
 }
 
+ [hidden] {
+   display: none !important;
+ }
+
 .hidden {
   display: none;
 }
@@ -55,6 +59,10 @@ body {
   gap: 8px;
 }
 
+.settings {
+  position: relative;
+}
+
 .btn {
   background: var(--panel);
   color: var(--text);
@@ -64,8 +72,43 @@ body {
   font-size: 13px;
 }
 
+.btn.ghost {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
 .btn:disabled {
   opacity: 0.5;
+}
+
+.settingsMenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 180px;
+  background: rgba(17, 22, 28, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 30;
+}
+
+.menuItem {
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: rgba(88, 166, 255, 0.12);
+  cursor: pointer;
 }
 
 .main {
@@ -73,6 +116,15 @@ body {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  position: relative;
+}
+
+.panelOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 35;
 }
 
 .chat {
@@ -299,6 +351,129 @@ body {
 
 .dots span:nth-child(3) {
   animation-delay: 0.3s;
+}
+
+.settingsPanel {
+  position: fixed;
+  top: 70px;
+  right: 12px;
+  width: min(360px, 90vw);
+  max-height: calc(100vh - 100px);
+  background: rgba(17, 22, 28, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 40;
+  animation: panelIn 180ms ease-out;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.panelTitle {
+  font-weight: 700;
+}
+
+.panelBody {
+  padding: 12px 14px 16px;
+  overflow: auto;
+  color: rgba(230, 237, 243, 0.9);
+}
+
+ .panelGroup {
+   display: flex;
+   flex-direction: column;
+ }
+
+.panelLabel {
+  font-size: 12px;
+  color: rgba(230, 237, 243, 0.7);
+}
+
+.panelInput,
+.panelTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.panelTextarea {
+  resize: vertical;
+  min-height: 64px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  line-height: 1.4;
+}
+
+.panelInput:focus,
+.panelTextarea:focus {
+  border-color: rgba(88, 166, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.18);
+}
+
+.panelActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.mermaidBlock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.mermaidToolbar {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.mermaidBlock pre {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px;
+  overflow: auto;
+  margin: 0;
+}
+
+.panelBody p {
+  margin: 0 0 8px 0;
+}
+
+.muted {
+  color: rgba(230, 237, 243, 0.6);
+}
+
+@keyframes panelIn {
+  from {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 @keyframes bounce {

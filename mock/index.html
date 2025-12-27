@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Codex Terminal UI Mock</title>
     <link rel="stylesheet" href="./style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   </head>
   <body>
     <header class="topbar">
@@ -13,22 +14,30 @@
         <div class="brandMeta">UI Mock（見た目/動きだけ）</div>
       </div>
       <div class="topbarRight">
-        <button id="resetBtn" class="btn">リセット</button>
+        <div class="settings">
+          <button id="settingsBtn" class="btn ghost">設定 ▾</button>
+          <div id="settingsMenu" class="settingsMenu" hidden>
+            <button class="menuItem" data-action="prompt">プロンプト</button>
+            <button class="menuItem" data-action="start-ci">起動CIコマンド</button>
+            <button class="menuItem" data-action="restart-ci">CIリスタート</button>
+          </div>
+        </div>
       </div>
     </header>
 
     <main class="main">
       <div id="chat" class="chat" aria-label="conversation">
-        <div class="messageRow assistant">
-          <div class="bubble assistant markdown">
-            <p><strong>モックです。</strong> ここでUIの見た目だけ先に詰められます。</p>
-            <ul>
-              <li>テキストを入力して送信</li>
-              <li>画像を貼り付け/ドラッグ/「＋」で添付</li>
-            </ul>
-          </div>
-        </div>
       </div>
+      <div id="panelOverlay" class="panelOverlay" hidden></div>
+      <aside id="settingsPanel" class="settingsPanel" aria-label="settings panel" hidden>
+        <div class="panelHeader">
+          <div id="panelTitle" class="panelTitle">設定</div>
+          <button id="panelClose" class="iconBtn ghost" aria-label="close panel">×</button>
+        </div>
+        <div id="panelBody" class="panelBody">
+          <p class="muted">ここに設定内容を表示します。</p>
+        </div>
+      </aside>
 
       <footer class="composer" aria-label="composer">
         <div id="attachments" class="attachments" hidden></div>
@@ -41,7 +50,7 @@
             placeholder="質問してみましょう（テキスト/コピペ/画像貼り付け）"
             spellcheck="false"
           ></textarea>
-          <button id="sendBtn" class="sendBtn" disabled>送信</button>
+          <button id="clearBtn" class="sendBtn" aria-label="clear input">×</button>
         </div>
         <div class="hint">
           Enterで送信 / Shift+Enterで改行。実際の拡張は Native Messaging 経由で `codex` を実行します。
