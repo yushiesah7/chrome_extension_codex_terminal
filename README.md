@@ -83,7 +83,7 @@ cp native_host/com.yushi.chrome_extension_codex_terminal.json.template \
 補足：
 - サイドパネルは **1つの入力欄**で質問できます（Enterで送信 / Shift+Enterで改行）。
 - 画像は「＋」/ 画像貼り付け / ドラッグ&ドロップで添付できます。
-- 会話は同じCodexセッションを `codex exec resume` で再開して連続で質問します（Chromeを閉じるまで）。「新しい会話」でリセットできます。
+- 会話は同じCodexセッションを `codex exec resume` で再開して連続で質問します（Chromeを閉じるまで）。必要なら「設定 ▾」→「新しい会話」でリセットできます。
 - 回答はMarkdownをHTMLに変換して表示します（コードブロック/箇条書き/リンク等）。
 
 ### プロンプト（前提）を変えたい
@@ -148,7 +148,7 @@ Chrome（GUI）経由は `PATH` が薄いので、`codex` を Homebrew で入れ
 現状の `codex` CLI の仕様上、`codex exec resume` は `--image` に対応していません。
 
 - 画像を添付した質問は **新しいセッションとして実行**されます（サイドパネル上部の `session: XXXXX...` が変わります）
-- 画像を添付し直したい場合は「新しい会話」でリセットしてから送ってください
+- 画像を添付し直したい場合は「設定 ▾」→「新しい会話」でリセットしてから送ってください
 
 ### `起動失敗: Error: posix_spawnp failed.`
 

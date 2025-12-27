@@ -4,6 +4,9 @@ const NATIVE_HOST_NAME = 'com.yushi.chrome_extension_codex_terminal';
 const STORAGE_KEY_PENDING = 'pendingCodexAsk';
 const STORAGE_KEY_THREAD_ID = 'codexThreadId';
 const STORAGE_KEY_PROMPT_TEMPLATE = 'promptTemplate';
+const STORAGE_KEY_START_CMD = 'startCommand';
+const STORAGE_KEY_CI_START_CMD = 'ciStartCommand';
+const STORAGE_KEY_CI_RESTART_CMD = 'ciRestartCommand';
 
 const RAW_CHUNK_SIZE = 256 * 1024; // base64化しても1MB未満に収めやすいサイズ
 const MAX_ATTACHMENTS = 4;
@@ -11,7 +14,6 @@ const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 const metaEl = document.getElementById('meta');
 const statusEl = document.getElementById('status');
-const newChatBtn = document.getElementById('newChatBtn');
 const settingsBtn = document.getElementById('settingsBtn');
 const settingsMenu = document.getElementById('settingsMenu');
 const settingsPanel = document.getElementById('settingsPanel');
@@ -28,7 +30,7 @@ const attachBtn = document.getElementById('attachBtn');
 const fileInput = document.getElementById('fileInput');
 
 const promptInput = document.getElementById('promptInput');
-const sendBtn = document.getElementById('sendBtn');
+const clearBtn = document.getElementById('clearBtn');
 
 /** @type {chrome.runtime.Port | null} */
 let port = null;
@@ -51,6 +53,16 @@ const DEFAULT_PROMPT_TEMPLATE = [
 
 /** @type {string} */
 let promptTemplate = DEFAULT_PROMPT_TEMPLATE;
+
+const DEFAULT_CODEX_CMD =
+  'codex exec --skip-git-repo-check --sandbox read-only --color never --json -C /tmp/chrome_extension_codex_terminal';
+const DEFAULT_CI_RESTART_CMD = 'npm run ci:restart';
+
+/** @type {string} */
+let ciStartCommand = DEFAULT_CODEX_CMD;
+
+/** @type {string} */
+let ciRestartCommand = DEFAULT_CI_RESTART_CMD;
 
 /** @type {{id:string, file:File, previewUrl:string}[]} */
 let attachments = [];
@@ -133,6 +145,39 @@ async function savePromptTemplate(value) {
   }
 }
 
+async function loadCiCommands() {
+  try {
+    const data = await chrome.storage.local.get([STORAGE_KEY_CI_START_CMD, STORAGE_KEY_CI_RESTART_CMD]);
+    const start = safeString(data[STORAGE_KEY_CI_START_CMD]).trim();
+    const restart = safeString(data[STORAGE_KEY_CI_RESTART_CMD]).trim();
+    ciStartCommand = start || DEFAULT_CODEX_CMD;
+    ciRestartCommand = restart || DEFAULT_CI_RESTART_CMD;
+  } catch {
+    ciStartCommand = DEFAULT_CODEX_CMD;
+    ciRestartCommand = DEFAULT_CI_RESTART_CMD;
+  }
+}
+
+async function saveCiStartCommand(value) {
+  const v = safeString(value).trim() || DEFAULT_CODEX_CMD;
+  ciStartCommand = v;
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEY_START_CMD]: v, [STORAGE_KEY_CI_START_CMD]: v });
+  } catch {
+    // ignore
+  }
+}
+
+async function saveCiRestartCommand(value) {
+  const v = safeString(value).trim() || DEFAULT_CI_RESTART_CMD;
+  ciRestartCommand = v;
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEY_CI_RESTART_CMD]: v });
+  } catch {
+    // ignore
+  }
+}
+
 function updateMeta() {
   const parts = [];
   parts.push(isConnected ? '接続: OK' : isConnecting ? '接続: ...' : '接続: NG');
@@ -145,14 +190,25 @@ function scrollToBottom() {
 }
 
 function setSendEnabled() {
-  const hasText = promptInput.value.trim().length > 0;
-  sendBtn.disabled = isRunning || !(hasText || attachments.length > 0);
+  const hasContent = promptInput.value.trim().length > 0 || attachments.length > 0;
+  if (clearBtn) clearBtn.disabled = !hasContent;
 }
 
 function autoResizeTextarea() {
   promptInput.style.height = 'auto';
   const max = 180;
   promptInput.style.height = Math.min(promptInput.scrollHeight, max) + 'px';
+}
+
+function applyToPromptInput(value) {
+  promptInput.value = safeString(value);
+  autoResizeTextarea();
+  setSendEnabled();
+  try {
+    promptInput.focus();
+  } catch {
+    // ignore
+  }
 }
 
 function renderMarkdownToHtml(markdown) {
@@ -699,7 +755,7 @@ promptInput.addEventListener('input', () => {
 promptInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    if (!sendBtn.disabled) sendBtn.click();
+    submitPrompt();
   }
 });
 
@@ -728,9 +784,14 @@ dropZone.addEventListener('drop', (e) => {
   if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files).catch(() => {});
 });
 
-sendBtn.addEventListener('click', async () => {
+async function submitPrompt() {
+  if (isRunning) return;
   const text = promptInput.value;
   const files = attachments.slice();
+
+  const hasText = safeString(text).trim().length > 0;
+  const hasImages = files.length > 0;
+  if (!hasText && !hasImages) return;
 
   // clear input/attachments early (UI即応)
   promptInput.value = '';
@@ -745,10 +806,13 @@ sendBtn.addEventListener('click', async () => {
     setSendEnabled();
     failAssistant(`[Error]\n${String(e)}`);
   }
-});
+}
 
-newChatBtn.addEventListener('click', () => {
-  resetConversation({ clearThread: true });
+clearBtn?.addEventListener('click', () => {
+  promptInput.value = '';
+  clearAttachments();
+  autoResizeTextarea();
+  setSendEnabled();
 });
 
 // settings
@@ -845,6 +909,117 @@ settingsMenu?.addEventListener('click', (e) => {
       actions.appendChild(resetBtn);
       container.appendChild(actions);
     });
+    return;
+  }
+
+  if (action === 'start-ci') {
+    showPanel('起動CIコマンド', (container) => {
+      const group = document.createElement('div');
+      group.className = 'panelGroup';
+
+      const label = document.createElement('label');
+      label.className = 'panelLabel';
+      label.textContent = '起動CIコマンド';
+
+      const textarea = document.createElement('textarea');
+      textarea.className = 'panelTextarea';
+      textarea.rows = 3;
+      textarea.value = ciStartCommand;
+
+      const actions = document.createElement('div');
+      actions.className = 'panelActions';
+
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'btn';
+      saveBtn.type = 'button';
+      saveBtn.textContent = '保存';
+
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'btn ghost';
+      resetBtn.type = 'button';
+      resetBtn.textContent = 'デフォルトに戻す';
+
+      saveBtn.addEventListener('click', () => {
+        saveCiStartCommand(textarea.value).then(() => {
+          container.innerHTML = '';
+          const p = document.createElement('p');
+          p.className = 'muted';
+          p.textContent = '保存しました。';
+          container.appendChild(p);
+        });
+      });
+
+      resetBtn.addEventListener('click', () => {
+        textarea.value = DEFAULT_CODEX_CMD;
+        saveCiStartCommand(DEFAULT_CODEX_CMD).catch(() => {});
+      });
+
+      group.appendChild(label);
+      group.appendChild(textarea);
+      container.appendChild(group);
+
+      actions.appendChild(saveBtn);
+      actions.appendChild(resetBtn);
+      container.appendChild(actions);
+    });
+    return;
+  }
+
+  if (action === 'restart-ci') {
+    showPanel('CIリスタート', (container) => {
+      const group = document.createElement('div');
+      group.className = 'panelGroup';
+
+      const label = document.createElement('label');
+      label.className = 'panelLabel';
+      label.textContent = 'CIリスタートコマンド';
+
+      const textarea = document.createElement('textarea');
+      textarea.className = 'panelTextarea';
+      textarea.rows = 3;
+      textarea.value = ciRestartCommand;
+
+      const actions = document.createElement('div');
+      actions.className = 'panelActions';
+
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'btn';
+      saveBtn.type = 'button';
+      saveBtn.textContent = '保存';
+
+      const useBtn = document.createElement('button');
+      useBtn.className = 'btn ghost';
+      useBtn.type = 'button';
+      useBtn.textContent = '入力欄に反映';
+
+      saveBtn.addEventListener('click', () => {
+        saveCiRestartCommand(textarea.value).then(() => {
+          container.innerHTML = '';
+          const p = document.createElement('p');
+          p.className = 'muted';
+          p.textContent = '保存しました。';
+          container.appendChild(p);
+        });
+      });
+
+      useBtn.addEventListener('click', () => {
+        applyToPromptInput(textarea.value);
+      });
+
+      group.appendChild(label);
+      group.appendChild(textarea);
+      container.appendChild(group);
+
+      actions.appendChild(saveBtn);
+      actions.appendChild(useBtn);
+      container.appendChild(actions);
+    });
+    return;
+  }
+
+  if (action === 'new-chat') {
+    resetConversation({ clearThread: true });
+    return;
   }
 });
 
@@ -856,6 +1031,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 async function init() {
   await loadPromptTemplate();
+  await loadCiCommands();
   toggleSettingsMenu(false);
   hidePanel();
   const data = await chrome.storage.session.get([STORAGE_KEY_THREAD_ID]);

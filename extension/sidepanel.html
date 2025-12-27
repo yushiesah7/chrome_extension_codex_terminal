@@ -18,9 +18,11 @@
           <button id="settingsBtn" class="btn ghost" aria-expanded="false">設定 ▾</button>
           <div id="settingsMenu" class="settingsMenu" hidden>
             <button class="menuItem" data-action="prompt">プロンプト</button>
+            <button class="menuItem" data-action="start-ci">起動CIコマンド</button>
+            <button class="menuItem" data-action="restart-ci">CIリスタート</button>
+            <button class="menuItem" data-action="new-chat">新しい会話</button>
           </div>
         </div>
-        <button id="newChatBtn" class="btn">新しい会話</button>
       </div>
     </header>
 
@@ -47,9 +49,11 @@
             placeholder="質問してみましょう（テキスト/コピペ/画像貼り付け）"
             spellcheck="false"
           ></textarea>
-          <button id="sendBtn" class="sendBtn" disabled>送信</button>
+          <button id="clearBtn" class="sendBtn" aria-label="clear input">×</button>
         </div>
-        <div id="status" class="hint">Enterで送信 / Shift+Enterで改行</div>
+        <div id="status" class="hint">
+          Enterで送信 / Shift+Enterで改行。実際の拡張は Native Messaging 経由で `codex` を実行します。
+        </div>
         <input id="fileInput" class="hidden" type="file" accept="image/*" multiple />
       </footer>
     </main>
