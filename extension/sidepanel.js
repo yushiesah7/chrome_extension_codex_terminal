@@ -11,9 +11,10 @@ const STORAGE_KEY_CODEX_MODEL = 'codexModel';
 
 const MODEL_PRESETS = [
   { value: '', label: 'デフォルト（config.toml）' },
-  { value: 'o3', label: 'o3' },
-  { value: 'gpt-5.2', label: 'gpt-5.2' },
-  { value: 'gpt-5.2-codex', label: 'gpt-5.2-codex' }
+  { value: 'gpt-5.2-codex', label: 'gpt-5.2-codex' },
+  { value: 'gpt-5.1-codex-max', label: 'gpt-5.1-codex-max' },
+  { value: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
+  { value: 'gpt-5.2', label: 'gpt-5.2' }
 ];
 
 const RAW_CHUNK_SIZE = 256 * 1024; // base64化しても1MB未満に収めやすいサイズ
