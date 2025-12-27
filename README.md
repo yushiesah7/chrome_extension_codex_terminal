@@ -78,13 +78,14 @@ cp native_host/com.yushi.chrome_extension_codex_terminal.json.template \
 2. 任意のページを開く
 3. ページ上の適当な文章をドラッグして選択
 4. 右クリック → **「Codexに聞く（選択範囲）」**
-5. サイドパネルが開き、チャット形式で回答が表示されればOK
+5. サイドパネルが開き、**選択テキストが入力欄に貼り付いた状態**になり、送信すると回答が表示されればOK
 
 補足：
 - サイドパネルは **1つの入力欄**で質問できます（Enterで送信 / Shift+Enterで改行）。
 - 画像は「＋」/ 画像貼り付け / ドラッグ&ドロップで添付できます。
 - 会話は同じCodexセッションを `codex exec resume` で再開して連続で質問します（Chromeを閉じるまで）。必要なら「設定 ▾」→「新しい会話」でリセットできます。
 - 回答はMarkdownをHTMLに変換して表示します（コードブロック/箇条書き/リンク等）。
+- 回答内の ```mermaid``` は図として描画します（MV3のCSP制約があるため、内部のsandbox iframeで描画→SVGだけを表示します）。
 
 ### プロンプト（前提）を変えたい
 
@@ -142,6 +143,11 @@ node mock/server.mjs
 
 Chrome（GUI）経由は `PATH` が薄いので、`codex` を Homebrew で入れている場合は
 `/opt/homebrew/bin/codex`（Apple Silicon）や `/usr/local/bin/codex`（Intel）にあるかも確認してください。
+
+### Mermaid が図として表示されない
+
+Chrome拡張（MV3）の拡張ページは `unsafe-eval` が使えず、Mermaid は環境によっては描画に失敗します。
+この拡張では `extension/mermaid_sandbox.html` を **sandbox iframe** として読み込み、そこでMermaidを実行して生成したSVGだけをサイドパネルに表示します。
 
 ### 画像付きで会話を続けたい
 

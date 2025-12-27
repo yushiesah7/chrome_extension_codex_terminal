@@ -40,14 +40,6 @@
       </aside>
       <footer class="composer" aria-label="composer">
         <div id="attachments" class="attachments" hidden></div>
-        <div id="selectionContext" class="selectionContext" hidden>
-          <div class="selectionHeader">
-            <div class="selectionLabel">選択中</div>
-            <button id="selectionClearBtn" class="attachRm" type="button" aria-label="clear selection">×</button>
-          </div>
-          <pre id="selectionText" class="selectionText"></pre>
-          <div id="selectionUrl" class="selectionUrl"></div>
-        </div>
         <div id="dropZone" class="composerRow">
           <button id="attachBtn" class="iconBtn" aria-label="attach" title="画像を添付">＋</button>
           <textarea
@@ -67,7 +59,6 @@
     </main>
 
     <!-- サイドパネルの挙動（Native Messaging 連携） -->
-    <script src="vendor/mermaid.min.js"></script>
     <script src="vendor/marked.umd.js"></script>
     <script src="vendor/purify.min.js"></script>
     <script src="sidepanel.js"></script>

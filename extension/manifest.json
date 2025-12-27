@@ -14,5 +14,12 @@
   },
   "side_panel": {
     "default_path": "sidepanel.html"
+  },
+  "sandbox": {
+    "pages": ["mermaid_sandbox.html"]
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'",
+    "sandbox": "sandbox allow-scripts; default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
   }
 }

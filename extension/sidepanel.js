@@ -24,10 +24,6 @@ const panelClose = document.getElementById('panelClose');
 
 const chatEl = document.getElementById('chat');
 const attachmentsEl = document.getElementById('attachments');
-const selectionContextEl = document.getElementById('selectionContext');
-const selectionTextEl = document.getElementById('selectionText');
-const selectionUrlEl = document.getElementById('selectionUrl');
-const selectionClearBtn = document.getElementById('selectionClearBtn');
 const dropZone = document.getElementById('dropZone');
 
 const attachBtn = document.getElementById('attachBtn');
@@ -83,6 +79,8 @@ let pendingSelectionText = '';
 /** @type {string} */
 let pendingPageUrl = '';
 
+let submitSeq = 0;
+
 function uploadKey(requestId, imageId) {
   return `${requestId}:${imageId}`;
 }
@@ -105,38 +103,6 @@ function safeString(value) {
 
 function setStatus(text) {
   statusEl.textContent = text;
-}
-
-function renderSelectionContext() {
-  if (!selectionContextEl) return;
-
-  const text = safeString(pendingSelectionText).trim();
-  const url = safeString(pendingPageUrl).trim();
-  const has = Boolean(text || url);
-
-  selectionContextEl.hidden = !has;
-  if (!has) {
-    if (selectionTextEl) selectionTextEl.textContent = '';
-    if (selectionUrlEl) selectionUrlEl.textContent = '';
-    return;
-  }
-
-  if (selectionTextEl) selectionTextEl.textContent = text;
-
-  if (selectionUrlEl) {
-    selectionUrlEl.innerHTML = '';
-    if (url) {
-      const label = document.createElement('span');
-      label.textContent = 'URL: ';
-      const a = document.createElement('a');
-      a.href = url;
-      a.textContent = url;
-      a.target = '_blank';
-      a.rel = 'noreferrer';
-      selectionUrlEl.appendChild(label);
-      selectionUrlEl.appendChild(a);
-    }
-  }
 }
 
 function toggleSettingsMenu(open) {
@@ -311,20 +277,116 @@ function renderMarkdownToHtml(markdown) {
   }
 }
 
-function initMermaid() {
-  const mermaid = globalThis.mermaid;
-  if (!mermaid?.initialize) return;
-  try {
-    mermaid.initialize({ startOnLoad: false, theme: 'dark' });
-  } catch {
-    // ignore
+/** @type {HTMLIFrameElement | null} */
+let mermaidSandboxFrame = null;
+/** @type {Promise<void> | null} */
+let mermaidSandboxReadyPromise = null;
+/** @type {{resolve:() => void, reject:(e:Error) => void, timer:number} | null} */
+let mermaidSandboxReadyWaiter = null;
+/** @type {Map<string, {resolve:(svg:string) => void, reject:(e:Error) => void, timer:number}>} */
+const mermaidWaiters = new Map();
+
+function handleMermaidSandboxMessage(event) {
+  if (!mermaidSandboxFrame?.contentWindow) return;
+  if (event.source !== mermaidSandboxFrame.contentWindow) return;
+
+  const msg = event.data;
+  if (!msg || typeof msg !== 'object') return;
+
+  if (msg.type === 'mermaid_ready') {
+    const waiter = mermaidSandboxReadyWaiter;
+    if (waiter) {
+      mermaidSandboxReadyWaiter = null;
+      try {
+        clearTimeout(waiter.timer);
+      } catch {
+        // ignore
+      }
+      waiter.resolve();
+    }
+    return;
+  }
+
+  if (msg.type === 'render_mermaid_result' && typeof msg.id === 'string' && typeof msg.svg === 'string') {
+    const w = mermaidWaiters.get(msg.id);
+    if (!w) return;
+    mermaidWaiters.delete(msg.id);
+    try {
+      clearTimeout(w.timer);
+    } catch {
+      // ignore
+    }
+    w.resolve(msg.svg);
+    return;
+  }
+
+  if (msg.type === 'render_mermaid_error' && typeof msg.id === 'string') {
+    const w = mermaidWaiters.get(msg.id);
+    if (!w) return;
+    mermaidWaiters.delete(msg.id);
+    try {
+      clearTimeout(w.timer);
+    } catch {
+      // ignore
+    }
+    w.reject(new Error(typeof msg.error === 'string' ? msg.error : 'Mermaid render failed'));
   }
 }
 
+window.addEventListener('message', handleMermaidSandboxMessage);
+
+function ensureMermaidSandboxReady() {
+  if (mermaidSandboxReadyPromise) return mermaidSandboxReadyPromise;
+
+  mermaidSandboxReadyPromise = new Promise((resolve, reject) => {
+    const frame = document.createElement('iframe');
+    frame.src = 'mermaid_sandbox.html';
+    frame.style.display = 'none';
+    frame.setAttribute('title', 'mermaid sandbox');
+    document.body.appendChild(frame);
+    mermaidSandboxFrame = frame;
+
+    const timer = setTimeout(() => {
+      const waiter = mermaidSandboxReadyWaiter;
+      mermaidSandboxReadyWaiter = null;
+      reject(new Error('Mermaid sandbox が起動しませんでした'));
+      if (waiter) {
+        try {
+          clearTimeout(waiter.timer);
+        } catch {
+          // ignore
+        }
+      }
+    }, 2500);
+    mermaidSandboxReadyWaiter = { resolve, reject, timer };
+  });
+
+  return mermaidSandboxReadyPromise;
+}
+
+async function renderMermaidSvg(code) {
+  const src = safeString(code);
+  if (!src.trim()) throw new Error('empty mermaid code');
+
+  await ensureMermaidSandboxReady();
+  if (!mermaidSandboxFrame?.contentWindow) throw new Error('Mermaid sandbox が利用できません');
+
+  const id = `mmd-${uid()}`;
+  const done = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      mermaidWaiters.delete(id);
+      reject(new Error('Mermaid render timeout'));
+    }, 15_000);
+    mermaidWaiters.set(id, { resolve, reject, timer });
+  });
+
+  mermaidSandboxFrame.contentWindow.postMessage({ type: 'render_mermaid', id, code: src }, '*');
+  return done;
+}
+
 function renderMermaidIn(container) {
-  const mermaid = globalThis.mermaid;
   const DOMPurify = globalThis.DOMPurify;
-  if (!mermaid?.render || !(container instanceof HTMLElement)) return;
+  if (!(container instanceof HTMLElement)) return;
 
   const codeBlocks = container.querySelectorAll('code.language-mermaid');
   if (!codeBlocks.length) return;
@@ -333,16 +395,11 @@ function renderMermaidIn(container) {
     const parentPre = codeEl.closest('pre');
     const code = codeEl.textContent || '';
     if (!code.trim()) return;
-
-    const id = `mmd-${uid()}`;
-
-    mermaid
-      .render(id, code)
-      .then(({ svg }) => {
-        const svgHtml =
-          typeof DOMPurify?.sanitize === 'function'
-            ? DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } })
-            : svg;
+    renderMermaidSvg(code)
+      .then((svg) => {
+        const svgHtml = typeof DOMPurify?.sanitize === 'function'
+          ? DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } })
+          : svg;
 
         const block = document.createElement('div');
         block.className = 'mermaidBlock';
@@ -809,10 +866,26 @@ async function uploadImage({ requestId, imageId, file }) {
   await done;
 }
 
+function buildEffectiveQuestion({ userText, selectionText }) {
+  const text = safeString(userText).trim();
+  const selection = safeString(selectionText).trim();
+
+  if (!selection) return text;
+  if (!text) return `「${selection}」について教えてください。`;
+
+  if (text.includes('{selection}')) return text.split('{selection}').join(selection);
+  if (text.includes(selection)) return text;
+
+  // 「って何？」「とは？」など、選択語に続けて自然に読める入力はそのまま連結する
+  if (/^(って|とは|は|が|の|を|に|で|について)/u.test(text)) return `${selection}${text}`;
+  return `「${selection}」について、${text}`;
+}
+
 function buildCodexPrompt({ userText, selectionText, pageUrl, hasImages }) {
   const text = safeString(userText).trim();
   const selection = safeString(selectionText).trim();
   const url = safeString(pageUrl).trim();
+  const question = buildEffectiveQuestion({ userText: text, selectionText: selection });
 
   const lines = [safeString(promptTemplate).trim() || DEFAULT_PROMPT_TEMPLATE, ''];
 
@@ -820,7 +893,16 @@ function buildCodexPrompt({ userText, selectionText, pageUrl, hasImages }) {
     lines.push('添付画像も参照して回答してください。', '');
   }
 
-  lines.push('## ユーザーの入力', text || '（なし）', '', '## 選択テキスト', selection || '（なし）', '', '## 出典URL', url || '（不明）');
+  lines.push(
+    '## 質問',
+    question || '（なし）',
+    '',
+    '## 選択テキスト',
+    selection || '（なし）',
+    '',
+    '## 出典URL',
+    url || '（不明）'
+  );
   return lines.join('\n');
 }
 
@@ -828,11 +910,14 @@ function buildUserMarkdown({ userText, selectionText, pageUrl, hasImages }) {
   const text = safeString(userText).trim();
   const selection = safeString(selectionText).trim();
   const url = safeString(pageUrl).trim();
+  const question = buildEffectiveQuestion({ userText: text, selectionText: selection });
 
   const lines = [];
-  if (text) lines.push(text);
-  if (!text && hasImages) lines.push('（画像）');
-  if (selection) {
+  if (question) lines.push(question);
+  if (!question && hasImages) lines.push('（画像）');
+
+  const alreadyIncludesSelection = Boolean(selection && question && question.includes(selection));
+  if (selection && !alreadyIncludesSelection) {
     lines.push('', '```text', selection, '```');
   }
   if (url) {
@@ -905,12 +990,25 @@ async function loadPendingAsk() {
 
   await chrome.storage.session.remove(STORAGE_KEY_PENDING);
 
-  // 「Codexに聞く（選択範囲）」は、自動送信せず「選択中」として表示する
+  // 「Codexに聞く（選択範囲）」は、自動送信せず入力欄へ挿入する
   pendingSelectionText = selectionText;
   pendingPageUrl = pageUrl;
-  renderSelectionContext();
 
-  if (question) applyToPromptInput(question);
+  if (selectionText) {
+    if (safeString(promptInput.value).trim()) {
+      insertIntoPromptInput(selectionText);
+    } else {
+      applyToPromptInput(selectionText);
+    }
+  }
+
+  if (question) {
+    if (safeString(promptInput.value).trim()) {
+      insertIntoPromptInput(question);
+    } else {
+      applyToPromptInput(question);
+    }
+  }
 }
 
 // UI events
@@ -967,18 +1065,32 @@ async function submitPrompt() {
 
   const hasText = safeString(text).trim().length > 0;
   const hasImages = files.length > 0;
-  if (!hasText && !hasImages) return;
-
-  const userText = text;
   const selectionText = pendingSelectionText;
   const pageUrl = pendingPageUrl;
+  const hasSelection = safeString(selectionText).trim().length > 0;
+  if (!hasText && !hasImages && !hasSelection) return;
+
+  const userText = text;
+
+  // 選択範囲は「次の送信」だけに紐づける（次の入力へ持ち越さない）
+  pendingSelectionText = '';
+  pendingPageUrl = '';
 
   // clear input/attachments early (UI即応)
+  const seq = ++submitSeq;
   promptInput.value = '';
   autoResizeTextarea();
   // 送信済みメッセージ内でもサムネを表示したいので、ここでは revoke しない
   clearAttachments({ revoke: false });
   setSendEnabled();
+  // IMEなどで送信直後に文字が戻ることがあるため、次tickでもう一度消す
+  setTimeout(() => {
+    if (submitSeq !== seq) return;
+    if (!promptInput.value) return;
+    promptInput.value = '';
+    autoResizeTextarea();
+    setSendEnabled();
+  }, 0);
 
   try {
     await sendMessageToCodex({ userText, selectionText, pageUrl, files });
@@ -994,12 +1106,6 @@ clearBtn?.addEventListener('click', () => {
   clearAttachments();
   autoResizeTextarea();
   setSendEnabled();
-});
-
-selectionClearBtn?.addEventListener('click', () => {
-  pendingSelectionText = '';
-  pendingPageUrl = '';
-  renderSelectionContext();
 });
 
 // settings
@@ -1208,7 +1314,6 @@ settingsMenu?.addEventListener('click', (e) => {
     resetConversation({ clearThread: true });
     pendingSelectionText = '';
     pendingPageUrl = '';
-    renderSelectionContext();
     return;
   }
 });
@@ -1220,12 +1325,10 @@ chrome.runtime.onMessage.addListener((msg) => {
 });
 
 async function init() {
-  initMermaid();
   await loadPromptTemplate();
   await loadCiCommands();
   toggleSettingsMenu(false);
   hidePanel();
-  renderSelectionContext();
   const data = await chrome.storage.session.get([STORAGE_KEY_THREAD_ID]);
   threadId = safeString(data[STORAGE_KEY_THREAD_ID]);
   updateMeta();
