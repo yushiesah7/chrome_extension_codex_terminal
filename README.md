@@ -81,6 +81,7 @@ cp native_host/com.yushi.chrome_extension_codex_terminal.json.template \
 
 補足：
 - サイドパネルの「会話を続ける」がONなら、同じCodexセッションを `codex exec resume` で再開して連続で質問できます（Chromeを閉じるまで）。「新しい会話」でリセットできます。
+- 回答はMarkdownをHTMLに変換して表示します（コードブロック/箇条書き/リンク等がそれっぽく見えます）。
 
 （手動でやる場合）
 1. 拡張アイコンをクリック（サイドパネルを開く）

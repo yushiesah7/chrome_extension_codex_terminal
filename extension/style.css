@@ -144,3 +144,56 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.answer.markdown {
+  white-space: normal;
+}
+
+.answer.markdown :where(h1, h2, h3, h4, h5, h6) {
+  margin: 12px 0 6px;
+}
+
+.answer.markdown :where(p) {
+  margin: 8px 0;
+}
+
+.answer.markdown :where(ul, ol) {
+  margin: 8px 0 8px 22px;
+  padding: 0;
+}
+
+.answer.markdown :where(li) {
+  margin: 4px 0;
+}
+
+.answer.markdown :where(a) {
+  color: #58a6ff;
+}
+
+.answer.markdown :where(code) {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.answer.markdown :where(pre) {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.answer.markdown :where(pre code) {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.answer.markdown :where(blockquote) {
+  margin: 8px 0;
+  padding: 0 0 0 12px;
+  border-left: 3px solid rgba(255, 255, 255, 0.15);
+  opacity: 0.9;
+}

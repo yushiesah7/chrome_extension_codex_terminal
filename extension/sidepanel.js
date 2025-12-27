@@ -31,6 +31,9 @@ let keepSession = true;
 /** @type {string} */
 let threadId = '';
 
+/** @type {string} */
+let answerBuffer = '';
+
 function safeString(value) {
   return typeof value === 'string' ? value : '';
 }
@@ -102,13 +105,38 @@ function disconnect() {
 }
 
 function resetAnswer() {
+  answerBuffer = '';
   answerEl.textContent = '';
 }
 
 function appendAnswer(text) {
-  answerEl.textContent += text;
+  answerBuffer += text;
+  answerEl.textContent = answerBuffer;
   // keep scroll at bottom
   answerEl.scrollTop = answerEl.scrollHeight;
+}
+
+function renderAnswerMarkdown() {
+  const markdown = answerBuffer.trimEnd();
+  if (!markdown) return;
+
+  const marked = globalThis.marked;
+  const DOMPurify = globalThis.DOMPurify;
+  if (!marked?.parse || typeof DOMPurify?.sanitize !== 'function') return;
+
+  try {
+    const html = marked.parse(markdown, {
+      // extension側でid生成やメールアドレス難読化は不要
+      mangle: false,
+      headerIds: false
+    });
+    const safeHtml = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+    answerEl.innerHTML = safeHtml;
+    answerEl.scrollTop = answerEl.scrollHeight;
+  } catch {
+    // 失敗したらプレーンテキストのまま
+    answerEl.textContent = markdown;
+  }
 }
 
 function buildPrompt({ question, selectionText, pageUrl }) {
@@ -158,6 +186,7 @@ function handleHostMessage(msg) {
 
   if (msg.type === 'codex_done') {
     setRunningState(false);
+    renderAnswerMarkdown();
     return;
   }
 
@@ -293,4 +322,3 @@ async function init() {
 }
 
 init();
-
