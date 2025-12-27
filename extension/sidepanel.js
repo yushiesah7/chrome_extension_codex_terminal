@@ -73,6 +73,12 @@ let currentAssistant = null;
 /** @type {Map<string, {resolve:() => void, reject:(e:Error) => void, timer:number}>} */
 const uploadWaiters = new Map();
 
+/** @type {string} */
+let pendingSelectionText = '';
+
+/** @type {string} */
+let pendingPageUrl = '';
+
 function uploadKey(requestId, imageId) {
   return `${requestId}:${imageId}`;
 }
@@ -218,6 +224,35 @@ function autoResizeTextarea() {
 
 function applyToPromptInput(value) {
   promptInput.value = safeString(value);
+  autoResizeTextarea();
+  setSendEnabled();
+  try {
+    promptInput.focus();
+  } catch {
+    // ignore
+  }
+}
+
+function insertIntoPromptInput(text) {
+  const insert = safeString(text);
+  if (!insert) return;
+
+  const v = safeString(promptInput.value);
+  const start =
+    typeof promptInput.selectionStart === 'number' ? promptInput.selectionStart : v.length;
+  const end = typeof promptInput.selectionEnd === 'number' ? promptInput.selectionEnd : start;
+
+  const next = v.slice(0, start) + insert + v.slice(end);
+  promptInput.value = next;
+
+  const pos = start + insert.length;
+  try {
+    promptInput.selectionStart = pos;
+    promptInput.selectionEnd = pos;
+  } catch {
+    // ignore
+  }
+
   autoResizeTextarea();
   setSendEnabled();
   try {
@@ -741,21 +776,25 @@ async function loadPendingAsk() {
     typeof pendingCodexAsk.selectionText === 'string' ? pendingCodexAsk.selectionText : '';
   const pageUrl = typeof pendingCodexAsk.pageUrl === 'string' ? pendingCodexAsk.pageUrl : '';
   const question = typeof pendingCodexAsk.question === 'string' ? pendingCodexAsk.question : '';
-  const autoAsk = pendingCodexAsk.autoAsk === true;
 
   await chrome.storage.session.remove(STORAGE_KEY_PENDING);
 
-  if (autoAsk) {
-    await sendMessageToCodex({
-      userText: question.trim() || 'なんだこれは？',
-      selectionText,
-      pageUrl,
-      files: []
-    });
-  } else {
-    promptInput.value = question || 'なんだこれは？';
-    autoResizeTextarea();
-    setSendEnabled();
+  // 「Codexに聞く（選択範囲）」は、自動送信せず入力欄に挿入するだけにする
+  pendingSelectionText = selectionText;
+  pendingPageUrl = pageUrl;
+
+  if (selectionText) {
+    // 既存入力がある場合は末尾に追記（最小の挙動で「挿入」）
+    if (promptInput.value.trim()) {
+      insertIntoPromptInput(`\n\n${selectionText}`);
+    } else {
+      applyToPromptInput(selectionText);
+    }
+    return;
+  }
+
+  if (question) {
+    applyToPromptInput(question);
   }
 }
 
@@ -812,6 +851,37 @@ async function submitPrompt() {
   const hasImages = files.length > 0;
   if (!hasText && !hasImages) return;
 
+  const selectionTrim = safeString(pendingSelectionText).trim();
+  const inputTrim = safeString(text).trim();
+  let userText = text;
+  let selectionText = '';
+
+  if (selectionTrim) {
+    // 入力が「選択範囲そのもの」なら、選択として扱う（重複回避）
+    if (inputTrim === selectionTrim) {
+      userText = '';
+      selectionText = selectionTrim;
+    } else if (inputTrim.endsWith(selectionTrim)) {
+      // 末尾に選択が残っているなら、先頭を質問として分離する（よくある使い方）
+      const before = inputTrim.slice(0, inputTrim.length - selectionTrim.length).trimEnd();
+      if (before) {
+        userText = before;
+        selectionText = selectionTrim;
+      } else {
+        userText = '';
+        selectionText = selectionTrim;
+      }
+    } else {
+      // それ以外は「質問 + 選択」の両方として扱う（多少重複してもOK）
+      selectionText = selectionTrim;
+    }
+  }
+
+  const pageUrl = pendingPageUrl;
+  // 1回送ったら pending は消す（次の質問に勝手に混ざらないように）
+  pendingSelectionText = '';
+  pendingPageUrl = '';
+
   // clear input/attachments early (UI即応)
   promptInput.value = '';
   autoResizeTextarea();
@@ -820,7 +890,7 @@ async function submitPrompt() {
   setSendEnabled();
 
   try {
-    await sendMessageToCodex({ userText: text, selectionText: '', pageUrl: '', files });
+    await sendMessageToCodex({ userText, selectionText, pageUrl, files });
   } catch (e) {
     isRunning = false;
     setSendEnabled();
@@ -831,6 +901,8 @@ async function submitPrompt() {
 clearBtn?.addEventListener('click', () => {
   promptInput.value = '';
   clearAttachments();
+  pendingSelectionText = '';
+  pendingPageUrl = '';
   autoResizeTextarea();
   setSendEnabled();
 });
@@ -1039,6 +1111,8 @@ settingsMenu?.addEventListener('click', (e) => {
 
   if (action === 'new-chat') {
     resetConversation({ clearThread: true });
+    pendingSelectionText = '';
+    pendingPageUrl = '';
     return;
   }
 });

@@ -38,8 +38,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       pendingCodexAsk: {
         selectionText,
         pageUrl,
-        question: 'なんだこれは？',
-        autoAsk: true,
+        question: '',
+        autoAsk: false,
         createdAt: Date.now()
       }
     })
