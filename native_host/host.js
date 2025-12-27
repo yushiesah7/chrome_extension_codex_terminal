@@ -246,11 +246,6 @@ function runCodex({ prompt, threadId, imagePaths, requestId, model, reasoningEff
   const modelName = typeof model === 'string' ? model.trim() : '';
   const effortName = typeof reasoningEffort === 'string' ? reasoningEffort.trim() : '';
   const images = Array.isArray(imagePaths) ? imagePaths.filter((p) => typeof p === 'string' && p) : [];
-  /** @type {string[]} */
-  const args = ['exec'];
-  if (modelName) args.push('-c', `model="${modelName}"`);
-  if (effortName) args.push('-c', `model_reasoning_effort="${effortName}"`);
-  args.push('--skip-git-repo-check', '--sandbox', 'read-only', '--color', 'never', '--json', '-C', DEFAULT_WORKDIR);
 
   let resumeId = typeof threadId === 'string' ? threadId.trim() : '';
 
@@ -260,17 +255,6 @@ function runCodex({ prompt, threadId, imagePaths, requestId, model, reasoningEff
     sendMessage({ type: 'status', text: '画像付きの質問は新しいセッションで実行します（codex resume は画像に未対応）' });
     resumeId = '';
   }
-
-  if (images.length) args.push('--image', ...images);
-  if (resumeId) args.push('resume', resumeId);
-
-  // prompt は stdin から渡す（引数は '-'）
-  args.push('-');
-
-  sendMessage({
-    type: 'status',
-    text: resumeId ? 'Codexセッションを再開...' : 'Codexに問い合わせ中...'
-  });
 
   const nodeBinDir = path.dirname(process.execPath);
   const env = {
@@ -282,141 +266,195 @@ function runCodex({ prompt, threadId, imagePaths, requestId, model, reasoningEff
     TERM: 'dumb'
   };
 
-  logLine(
-    `codex spawn: req=${requestId ? String(requestId).slice(0, 8) + '…' : '(none)'} images=${images.length} model=${modelName || '(default)'} effort=${effortName || '(default)'} bin=${codexBin} resume=${resumeId ? resumeId.slice(0, 8) + '…' : '(new)'} node=${process.execPath} PATH.head=${env.PATH.split(PATH_SEP).slice(0, 3).join(PATH_SEP)}`
-  );
-
   const runViaNode = shouldRunScriptViaNode(codexBin);
   const spawnBin = runViaNode ? process.execPath : codexBin;
-  const spawnArgs = runViaNode ? [codexBin, ...args] : args;
 
   if (runViaNode) {
     logLine(`codex spawn: run via node (bypass shebang)`);
   }
 
-  const child = spawn(spawnBin, spawnArgs, {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env
-  });
+  const attempt = (attemptEffort, attemptNo) => {
+    /** @type {string[]} */
+    const args = ['exec'];
+    if (modelName) args.push('-c', `model="${modelName}"`);
+    if (attemptEffort) args.push('-c', `model_reasoning_effort="${attemptEffort}"`);
+    args.push('--skip-git-repo-check', '--sandbox', 'read-only', '--color', 'never', '--json', '-C', DEFAULT_WORKDIR);
+    if (images.length) args.push('--image', ...images);
+    if (resumeId) args.push('resume', resumeId);
+    args.push('-');
 
-  codexProcess = child;
-  codexRequestId = typeof requestId === 'string' ? requestId : null;
+    sendMessage({
+      type: 'status',
+      text: resumeId ? 'Codexセッションを再開...' : 'Codexに問い合わせ中...'
+    });
 
-  let stderr = '';
-  child.stderr.on('data', (chunk) => {
-    stderr += chunk.toString('utf8');
-    // メモリ肥大防止（ログは最後の方だけ保持）
-    if (stderr.length > 200_000) stderr = stderr.slice(-200_000);
-  });
+    logLine(
+      `codex spawn: req=${requestId ? String(requestId).slice(0, 8) + '…' : '(none)'} images=${images.length} model=${modelName || '(default)'} effort=${attemptEffort || '(default)'} bin=${codexBin} resume=${resumeId ? resumeId.slice(0, 8) + '…' : '(new)'} node=${process.execPath} PATH.head=${env.PATH.split(PATH_SEP).slice(0, 3).join(PATH_SEP)}`
+    );
 
-  // --json の JSONL を逐次解析して、thread_id と回答を拾う
-  let stdoutBuf = '';
-  child.stdout.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => {
-    stdoutBuf += chunk;
-    if (stdoutBuf.length > 500_000) stdoutBuf = stdoutBuf.slice(-500_000);
+    const spawnArgs = runViaNode ? [codexBin, ...args] : args;
+    const child = spawn(spawnBin, spawnArgs, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env
+    });
 
-    let newlineIdx;
-    while ((newlineIdx = stdoutBuf.indexOf('\n')) >= 0) {
-      const line = stdoutBuf.slice(0, newlineIdx).trim();
-      stdoutBuf = stdoutBuf.slice(newlineIdx + 1);
-      if (!line) continue;
+    codexProcess = child;
+    codexRequestId = typeof requestId === 'string' ? requestId : null;
 
-      let evt;
-      try {
-        evt = JSON.parse(line);
-      } catch {
-        continue;
-      }
+    let stderr = '';
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString('utf8');
+      // メモリ肥大防止（ログは最後の方だけ保持）
+      if (stderr.length > 200_000) stderr = stderr.slice(-200_000);
+    });
 
-      if (evt?.type === 'thread.started' && typeof evt.thread_id === 'string') {
-        sendMessage({ type: 'codex_thread', id: evt.thread_id });
-        continue;
-      }
+    let lastJsonError = '';
 
-      if (evt?.type === 'item.completed') {
-        const item = evt.item;
-        if (item?.type === 'agent_message' && typeof item.text === 'string' && item.text) {
-          // UI側のスクロールを崩さないよう、最後に改行を付与
-          sendTextChunks('codex_chunk', item.text.trimEnd() + '\n');
+    // --json の JSONL を逐次解析して、thread_id と回答を拾う
+    let stdoutBuf = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdoutBuf += chunk;
+      if (stdoutBuf.length > 500_000) stdoutBuf = stdoutBuf.slice(-500_000);
+
+      let newlineIdx;
+      while ((newlineIdx = stdoutBuf.indexOf('\n')) >= 0) {
+        const line = stdoutBuf.slice(0, newlineIdx).trim();
+        stdoutBuf = stdoutBuf.slice(newlineIdx + 1);
+        if (!line) continue;
+
+        let evt;
+        try {
+          evt = JSON.parse(line);
+        } catch {
+          continue;
         }
-      }
-    }
-  });
 
-  child.on('error', (e) => {
-    codexProcess = null;
-    if (codexTimeout) {
-      clearTimeout(codexTimeout);
-      codexTimeout = null;
-    }
-    if (codexRequestId) {
-      cleanupUpload(codexRequestId);
-      codexRequestId = null;
-    }
-    logLine(`codex error: ${String(e)}`);
-    sendMessage({ type: 'codex_error', text: String(e) });
-    sendMessage({ type: 'codex_done' });
-  });
-
-  child.on('close', (code, signal) => {
-    codexProcess = null;
-    if (codexTimeout) {
-      clearTimeout(codexTimeout);
-      codexTimeout = null;
-    }
-    if (codexRequestId) {
-      cleanupUpload(codexRequestId);
-      codexRequestId = null;
-    }
-
-    // 最後が改行で終わらない場合に備えて、残りを1行として処理する
-    const tail = stdoutBuf.trim();
-    if (tail) {
-      try {
-        const evt = JSON.parse(tail);
         if (evt?.type === 'thread.started' && typeof evt.thread_id === 'string') {
           sendMessage({ type: 'codex_thread', id: evt.thread_id });
-        } else if (evt?.type === 'item.completed') {
+          continue;
+        }
+
+        if (evt?.type === 'item.completed') {
           const item = evt.item;
           if (item?.type === 'agent_message' && typeof item.text === 'string' && item.text) {
+            // UI側のスクロールを崩さないよう、最後に改行を付与
             sendTextChunks('codex_chunk', item.text.trimEnd() + '\n');
           }
+          continue;
         }
-      } catch {
-        // ignore
+
+        if (evt?.type === 'error' && typeof evt.message === 'string') {
+          lastJsonError = evt.message;
+          continue;
+        }
+
+        if (evt?.type === 'turn.failed') {
+          const errMsg = evt?.error?.message;
+          if (typeof errMsg === 'string') lastJsonError = errMsg;
+        }
       }
-    }
+    });
 
-    if (code !== 0) {
-      const err = stderr.trim() ? stderr.trim() : `codex exec failed (code=${String(code)}, signal=${String(signal)})`;
-      logLine(`codex exit: code=${String(code)} signal=${String(signal)} stderr.tail=${err.slice(-500)}`);
-      sendMessage({ type: 'codex_error', text: err });
-    }
-
-    sendMessage({ type: 'codex_done' });
-  });
-
-  // prompt を stdin で渡す
-  try {
-    child.stdin.write(prompt);
-    child.stdin.end();
-  } catch (e) {
-    sendMessage({ type: 'codex_error', text: String(e) });
-    sendMessage({ type: 'codex_done' });
-    cancelCodex();
-    return;
-  }
-
-  // タイムアウト（長時間ぶら下がるのを防止）
-  codexTimeout = setTimeout(() => {
-    const stillRunning = Boolean(codexProcess);
-    cancelCodex();
-    if (stillRunning) {
-      sendMessage({ type: 'codex_error', text: 'Codex の実行がタイムアウトしました' });
+    child.on('error', (e) => {
+      codexProcess = null;
+      if (codexTimeout) {
+        clearTimeout(codexTimeout);
+        codexTimeout = null;
+      }
+      if (codexRequestId) {
+        cleanupUpload(codexRequestId);
+        codexRequestId = null;
+      }
+      logLine(`codex error: ${String(e)}`);
+      sendMessage({ type: 'codex_error', text: String(e) });
       sendMessage({ type: 'codex_done' });
+    });
+
+    child.on('close', (code, signal) => {
+      codexProcess = null;
+      if (codexTimeout) {
+        clearTimeout(codexTimeout);
+        codexTimeout = null;
+      }
+
+      // 最後が改行で終わらない場合に備えて、残りを1行として処理する
+      const tail = stdoutBuf.trim();
+      if (tail) {
+        try {
+          const evt = JSON.parse(tail);
+          if (evt?.type === 'thread.started' && typeof evt.thread_id === 'string') {
+            sendMessage({ type: 'codex_thread', id: evt.thread_id });
+          } else if (evt?.type === 'item.completed') {
+            const item = evt.item;
+            if (item?.type === 'agent_message' && typeof item.text === 'string' && item.text) {
+              sendTextChunks('codex_chunk', item.text.trimEnd() + '\n');
+            }
+          } else if (evt?.type === 'error' && typeof evt.message === 'string') {
+            lastJsonError = evt.message;
+          } else if (evt?.type === 'turn.failed') {
+            const errMsg = evt?.error?.message;
+            if (typeof errMsg === 'string') lastJsonError = errMsg;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (code !== 0 && attemptNo === 0 && attemptEffort) {
+        const combined = (stderr.trim() || lastJsonError || '').toLowerCase();
+        const looksUnsupported =
+          combined.includes('unsupported value') &&
+          (combined.includes('reasoning.effort') || combined.includes('model_reasoning_effort'));
+        if (looksUnsupported) {
+          logLine(`codex retry: unsupported reasoning effort -> fallback to default (model=${modelName || '(default)'} effort=${attemptEffort})`);
+          sendMessage({
+            type: 'status',
+            text: '推論レベルがこのモデルで利用できないため、デフォルトで再試行します...'
+          });
+          attempt('', 1);
+          return;
+        }
+      }
+
+      if (codexRequestId) {
+        cleanupUpload(codexRequestId);
+        codexRequestId = null;
+      }
+
+      if (code !== 0) {
+        const err =
+          stderr.trim() || lastJsonError || `codex exec failed (code=${String(code)}, signal=${String(signal)})`;
+        logLine(`codex exit: code=${String(code)} signal=${String(signal)} stderr.tail=${err.slice(-500)}`);
+        sendMessage({ type: 'codex_error', text: err });
+      }
+
+      sendMessage({ type: 'codex_done' });
+    });
+
+    // prompt を stdin で渡す
+    try {
+      child.stdin.write(prompt);
+      child.stdin.end();
+    } catch (e) {
+      sendMessage({ type: 'codex_error', text: String(e) });
+      sendMessage({ type: 'codex_done' });
+      cancelCodex();
+      return;
     }
-  }, 180_000);
+
+    // タイムアウト（長時間ぶら下がるのを防止）
+    codexTimeout = setTimeout(() => {
+      const stillRunning = Boolean(codexProcess);
+      cancelCodex();
+      if (stillRunning) {
+        sendMessage({ type: 'codex_error', text: 'Codex の実行がタイムアウトしました' });
+        sendMessage({ type: 'codex_done' });
+      }
+    }, 180_000);
+  };
+
+  attempt(effortName, 0);
 }
 
 function startShell({ cwd }) {

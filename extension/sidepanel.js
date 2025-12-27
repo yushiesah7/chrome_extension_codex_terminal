@@ -238,6 +238,33 @@ function isValidReasoningEffort(value) {
   return EFFORT_PRESETS.some((e) => e.value === v);
 }
 
+function allowedEffortValuesForModel(model) {
+  const m = safeString(model).trim();
+  // 現状のCodex UIに合わせて、miniは Medium/High のみ（Low/Extra high は出ない）
+  if (m === 'gpt-5.1-codex-mini') return new Set(['', 'medium', 'high']);
+  // 不明なモデルは一旦フル（codex側で弾かれる可能性はあるため、困ったらデフォルト推奨）
+  return new Set(EFFORT_PRESETS.map((e) => e.value));
+}
+
+function normalizeEffortForModel({ model, effort }) {
+  const v = safeString(effort).trim();
+  const allowed = allowedEffortValuesForModel(model);
+  return allowed.has(v) ? v : '';
+}
+
+function populateEffortSelect(selectEl, model) {
+  if (!(selectEl instanceof HTMLSelectElement)) return;
+  const allowed = allowedEffortValuesForModel(model);
+  selectEl.innerHTML = '';
+  for (const opt of EFFORT_PRESETS) {
+    if (!allowed.has(opt.value)) continue;
+    const o = document.createElement('option');
+    o.value = opt.value;
+    o.textContent = opt.label;
+    selectEl.appendChild(o);
+  }
+}
+
 function formatModelForMeta(value) {
   const v = safeString(value).trim();
   if (!v) return '';
@@ -1069,7 +1096,10 @@ async function sendMessageToCodex({ userText, selectionText, pageUrl, files }) {
   const payload = { type: 'codex', requestId, prompt };
   if (threadId) payload.threadId = threadId;
   if (codexModel) payload.model = codexModel;
-  if (codexReasoningEffort) payload.reasoningEffort = codexReasoningEffort;
+  const effortToSend = codexModel
+    ? normalizeEffortForModel({ model: codexModel, effort: codexReasoningEffort })
+    : codexReasoningEffort;
+  if (effortToSend) payload.reasoningEffort = effortToSend;
   if (imageIds.length) payload.imageIds = imageIds;
 
   port.postMessage(payload);
@@ -1338,13 +1368,8 @@ settingsMenu?.addEventListener('click', (e) => {
 
       const effortSelect = document.createElement('select');
       effortSelect.className = 'panelSelect';
-      for (const opt of EFFORT_PRESETS) {
-        const o = document.createElement('option');
-        o.value = opt.value;
-        o.textContent = opt.label;
-        effortSelect.appendChild(o);
-      }
-      effortSelect.value = isValidReasoningEffort(codexReasoningEffort) ? codexReasoningEffort : '';
+      populateEffortSelect(effortSelect, input.value);
+      effortSelect.value = normalizeEffortForModel({ model: input.value, effort: codexReasoningEffort });
 
       const hint = document.createElement('p');
       hint.className = 'muted';
@@ -1354,6 +1379,9 @@ settingsMenu?.addEventListener('click', (e) => {
       select.addEventListener('change', () => {
         if (select.value === '__custom__') return;
         input.value = select.value;
+        const prev = effortSelect.value;
+        populateEffortSelect(effortSelect, input.value);
+        effortSelect.value = normalizeEffortForModel({ model: input.value, effort: prev });
       });
 
       const actions = document.createElement('div');
