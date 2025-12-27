@@ -473,12 +473,15 @@ function resetConversation({ clearThread } = {}) {
   scrollToBottom();
 }
 
-function clearAttachments() {
-  for (const a of attachments) {
-    try {
-      URL.revokeObjectURL(a.previewUrl);
-    } catch {
-      // ignore
+function clearAttachments({ revoke } = {}) {
+  const shouldRevoke = revoke !== false;
+  if (shouldRevoke) {
+    for (const a of attachments) {
+      try {
+        URL.revokeObjectURL(a.previewUrl);
+      } catch {
+        // ignore
+      }
     }
   }
   attachments = [];
@@ -812,7 +815,8 @@ async function submitPrompt() {
   // clear input/attachments early (UI即応)
   promptInput.value = '';
   autoResizeTextarea();
-  clearAttachments();
+  // 送信済みメッセージ内でもサムネを表示したいので、ここでは revoke しない
+  clearAttachments({ revoke: false });
   setSendEnabled();
 
   try {
