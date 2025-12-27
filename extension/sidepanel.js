@@ -571,9 +571,15 @@ function renderMermaidIn(container) {
     if (!code.trim()) return;
     renderMermaidSvg(code)
       .then((svg) => {
-        const svgHtml = typeof DOMPurify?.sanitize === 'function'
-          ? DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } })
-          : svg;
+        const svgHtml =
+          typeof DOMPurify?.sanitize === 'function'
+            ? DOMPurify.sanitize(svg, {
+                USE_PROFILES: { svg: true, svgFilters: true },
+                // Mermaid のSVGは <style> と class に依存するため許可する（securityLevel=strict で生成）
+                ADD_TAGS: ['style'],
+                ADD_ATTR: ['class', 'style']
+              })
+            : svg;
 
         const block = document.createElement('div');
         block.className = 'mermaidBlock';
