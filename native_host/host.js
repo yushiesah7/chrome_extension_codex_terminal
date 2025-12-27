@@ -683,5 +683,8 @@ process.stdin.on('end', () => {
 
 // Initial status
 ensureWorkdir();
-logLine(`native host started: node=${process.execPath}`);
-sendMessage({ type: 'status', text: 'Native host ready' });
+const startupCodexBin = findCodexBin();
+logLine(
+  `native host started: node=${process.execPath} codex=${startupCodexBin} PATH.head=${(typeof process.env.PATH === 'string' ? process.env.PATH : '').split(PATH_SEP).slice(0, 5).join(PATH_SEP)}`
+);
+sendMessage({ type: 'status', text: `Native host ready (log: ${LOG_FILE})` });
