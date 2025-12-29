@@ -98,6 +98,9 @@ let attachments = [];
 /** @type {{bubble:HTMLElement, buffer:string, hasStarted:boolean} | null} */
 let currentAssistant = null;
 
+let conversationTurns = [];
+let activeTurnId = '';
+
 /** @type {Map<string, {resolve:() => void, reject:(e:Error) => void, timer:number}>} */
 const uploadWaiters = new Map();
 
@@ -673,6 +676,12 @@ function setBubbleMarkdown(bubble, markdown) {
 }
 
 function addUserMessage({ markdown, imagePreviews }) {
+  const turnId = uid();
+  activeTurnId = turnId;
+  const imageCount = Array.isArray(imagePreviews) ? imagePreviews.length : 0;
+  const userMarkdown = imageCount ? `${safeString(markdown)}\n\n（添付画像: ${imageCount}枚）` : safeString(markdown);
+  conversationTurns.push({ id: turnId, userMarkdown, assistantMarkdown: '' });
+
   const bubble = createMessageRow('user');
   setBubbleMarkdown(bubble, markdown);
   appendImagesToBubble(bubble, imagePreviews);
@@ -707,6 +716,14 @@ function finishAssistantMarkdown() {
   } else {
     currentAssistant.bubble.textContent = '（応答なし）';
   }
+
+  if (activeTurnId) {
+    const last = conversationTurns.length ? conversationTurns[conversationTurns.length - 1] : null;
+    if (last && last.id === activeTurnId) {
+      last.assistantMarkdown = markdown || '（応答なし）';
+    }
+  }
+
   currentAssistant = null;
   scrollToBottom();
 }
@@ -714,6 +731,14 @@ function finishAssistantMarkdown() {
 function failAssistant(text) {
   if (currentAssistant) {
     currentAssistant.bubble.textContent = text;
+
+    if (activeTurnId) {
+      const last = conversationTurns.length ? conversationTurns[conversationTurns.length - 1] : null;
+      if (last && last.id === activeTurnId) {
+        last.assistantMarkdown = safeString(text) || '（応答なし）';
+      }
+    }
+
     currentAssistant = null;
     scrollToBottom();
     return;
@@ -724,6 +749,14 @@ function failAssistant(text) {
 function showAssistantError(text) {
   const bubble = createMessageRow('assistant');
   bubble.textContent = text;
+
+  if (activeTurnId) {
+    const last = conversationTurns.length ? conversationTurns[conversationTurns.length - 1] : null;
+    if (last && last.id === activeTurnId) {
+      last.assistantMarkdown = safeString(text) || '（応答なし）';
+    }
+  }
+
   scrollToBottom();
 }
 
@@ -856,6 +889,8 @@ function resetConversation({ clearThread } = {}) {
   // UI
   chatEl.innerHTML = '';
   currentAssistant = null;
+  conversationTurns = [];
+  activeTurnId = '';
 
   // thread
   if (clearThread) {
@@ -875,6 +910,117 @@ function resetConversation({ clearThread } = {}) {
     '<p><strong>使い方</strong></p><ul><li>下の入力欄に質問を入力して送信</li><li>「＋」/ 画像貼り付け / ドラッグで画像を添付</li></ul>';
   scrollToBottom();
 }
+
+ function buildConversationMarkdown({ mode, count, turnNumber, assistantOnly }) {
+   const total = conversationTurns.length;
+
+   let list = conversationTurns.slice();
+   if (mode === 'last') {
+     list = total ? [conversationTurns[total - 1]] : [];
+   }
+   if (mode === 'lastN') {
+     const n = Math.max(1, Math.min(total, Number.isFinite(count) ? count : 1));
+     list = total ? conversationTurns.slice(Math.max(0, total - n)) : [];
+   }
+   if (mode === 'turn') {
+     const idx = Math.max(1, Math.min(total, Number.isFinite(turnNumber) ? turnNumber : 1));
+     list = total ? [conversationTurns[idx - 1]] : [];
+   }
+
+   const now = new Date();
+   const exportedAt = `${now.toLocaleString('ja-JP')} (local) / ${now.toISOString()} (UTC)`;
+
+   const lines = [];
+   lines.push('# Codex Terminal Export');
+   lines.push('');
+   lines.push(`ExportedAt: ${exportedAt}`);
+   lines.push(`Thread: ${threadId || '(new)'}`);
+   lines.push(`Turns: ${list.length}/${total}`);
+   lines.push('');
+
+   let i = 0;
+   for (const t of list) {
+     i++;
+     const assistantMarkdown =
+       t.assistantMarkdown ||
+       (activeTurnId && t.id === activeTurnId && currentAssistant
+         ? safeString(currentAssistant.buffer).trimEnd()
+         : '') ||
+       '（応答なし）';
+
+     if (!assistantOnly) {
+       lines.push(`## Turn ${i}`);
+       lines.push('');
+       lines.push('### User');
+       lines.push('');
+       lines.push(safeString(t.userMarkdown) || '（なし）');
+       lines.push('');
+       lines.push('### Assistant');
+       lines.push('');
+       lines.push(safeString(assistantMarkdown) || '（応答なし）');
+       lines.push('');
+       lines.push('---');
+       lines.push('');
+     } else {
+       lines.push(`## Turn ${i} (Assistant)`);
+       lines.push('');
+       lines.push(safeString(assistantMarkdown) || '（応答なし）');
+       lines.push('');
+       lines.push('---');
+       lines.push('');
+     }
+   }
+
+   return lines.join('\n').trimEnd() + '\n';
+ }
+
+ async function copyTextToClipboard(text) {
+   const v = safeString(text);
+   if (!v) throw new Error('コピーする内容がありません');
+
+   if (navigator?.clipboard?.writeText) {
+     await navigator.clipboard.writeText(v);
+     return;
+   }
+
+   const ta = document.createElement('textarea');
+   ta.value = v;
+   ta.style.position = 'fixed';
+   ta.style.left = '-9999px';
+   ta.style.top = '-9999px';
+   document.body.appendChild(ta);
+   ta.focus();
+   ta.select();
+   const ok = document.execCommand('copy');
+   try {
+     document.body.removeChild(ta);
+   } catch {
+     // ignore
+   }
+   if (!ok) throw new Error('コピーに失敗しました');
+ }
+
+ function downloadTextAsFile(text, filename) {
+   const v = safeString(text);
+   if (!v) throw new Error('保存する内容がありません');
+
+   const name = safeString(filename).trim() || 'codex_terminal_export.md';
+   const blob = new Blob([v], { type: 'text/markdown;charset=utf-8' });
+   const url = URL.createObjectURL(blob);
+
+   const a = document.createElement('a');
+   a.href = url;
+   a.download = name;
+   a.click();
+
+   setTimeout(() => {
+     try {
+       URL.revokeObjectURL(url);
+     } catch {
+       // ignore
+     }
+   }, 10_000);
+ }
 
 function clearAttachments({ revoke } = {}) {
   const shouldRevoke = revoke !== false;
@@ -1609,6 +1755,169 @@ settingsMenu?.addEventListener('click', (e) => {
       actions.appendChild(saveBtn);
       actions.appendChild(useBtn);
       container.appendChild(actions);
+    });
+    return;
+  }
+
+  if (action === 'export-md') {
+    showPanel('Markdownエクスポート', (container) => {
+      const group = document.createElement('div');
+      group.className = 'panelGroup';
+
+      const scopeLabel = document.createElement('label');
+      scopeLabel.className = 'panelLabel';
+      scopeLabel.textContent = '範囲';
+
+      const scope = document.createElement('select');
+      scope.className = 'panelSelect';
+      for (const opt of [
+        { value: 'all', label: '全ての会話（全往復）' },
+        { value: 'last', label: '最新の会話（1往復）' },
+        { value: 'lastN', label: '最新からN往復' },
+        { value: 'turn', label: '指定の1往復（番号）' }
+      ]) {
+        const o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label;
+        scope.appendChild(o);
+      }
+      scope.value = 'all';
+
+      const countLabel = document.createElement('label');
+      countLabel.className = 'panelLabel';
+      countLabel.textContent = 'N（最新からN往復）';
+
+      const countInput = document.createElement('input');
+      countInput.className = 'panelInput';
+      countInput.type = 'number';
+      countInput.min = '1';
+      countInput.step = '1';
+      countInput.value = '5';
+
+      const turnLabel = document.createElement('label');
+      turnLabel.className = 'panelLabel';
+      turnLabel.textContent = '番号（指定の1往復）';
+
+      const turnInput = document.createElement('input');
+      turnInput.className = 'panelInput';
+      turnInput.type = 'number';
+      turnInput.min = '1';
+      turnInput.step = '1';
+      turnInput.value = String(Math.max(1, conversationTurns.length));
+
+      const assistantOnlyWrap = document.createElement('label');
+      assistantOnlyWrap.className = 'panelLabel';
+      assistantOnlyWrap.style.display = 'flex';
+      assistantOnlyWrap.style.alignItems = 'center';
+      assistantOnlyWrap.style.gap = '8px';
+
+      const assistantOnly = document.createElement('input');
+      assistantOnly.type = 'checkbox';
+      assistantOnly.checked = false;
+
+      const assistantOnlyText = document.createElement('span');
+      assistantOnlyText.textContent = 'アシスタント（LLM）出力のみ';
+
+      assistantOnlyWrap.appendChild(assistantOnly);
+      assistantOnlyWrap.appendChild(assistantOnlyText);
+
+      const outLabel = document.createElement('label');
+      outLabel.className = 'panelLabel';
+      outLabel.textContent = '出力（Markdown）';
+
+      const textarea = document.createElement('textarea');
+      textarea.className = 'panelTextarea';
+      textarea.rows = 10;
+      textarea.readOnly = true;
+
+      const hint = document.createElement('p');
+      hint.className = 'muted';
+      hint.textContent =
+        '※ 画像はファイルとして埋め込まず、枚数だけメモします。コピー/保存はボタン操作（ユーザー操作）で実行します。';
+
+      const status = document.createElement('p');
+      status.className = 'muted';
+      status.textContent = '';
+
+      function refresh() {
+        const mode = scope.value;
+        const n = Math.max(1, parseInt(countInput.value || '1', 10));
+        const t = Math.max(1, parseInt(turnInput.value || '1', 10));
+        const md = buildConversationMarkdown({
+          mode,
+          count: n,
+          turnNumber: t,
+          assistantOnly: assistantOnly.checked
+        });
+        textarea.value = md;
+        status.textContent = `現在: ${conversationTurns.length}往復`;
+
+        const useN = mode === 'lastN';
+        countLabel.hidden = !useN;
+        countInput.hidden = !useN;
+        const useTurn = mode === 'turn';
+        turnLabel.hidden = !useTurn;
+        turnInput.hidden = !useTurn;
+      }
+
+      scope.addEventListener('change', refresh);
+      countInput.addEventListener('input', refresh);
+      turnInput.addEventListener('input', refresh);
+      assistantOnly.addEventListener('change', refresh);
+      refresh();
+
+      const actions = document.createElement('div');
+      actions.className = 'panelActions';
+
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'btn';
+      copyBtn.type = 'button';
+      copyBtn.textContent = 'コピー';
+
+      const dlBtn = document.createElement('button');
+      dlBtn.className = 'btn ghost';
+      dlBtn.type = 'button';
+      dlBtn.textContent = 'ダウンロード';
+
+      copyBtn.addEventListener('click', () => {
+        copyTextToClipboard(textarea.value)
+          .then(() => {
+            status.textContent = 'コピーしました。';
+          })
+          .catch((err) => {
+            status.textContent = `コピーできませんでした: ${String(err)}`;
+          });
+      });
+
+      dlBtn.addEventListener('click', () => {
+        const now = new Date();
+        const stamp = now.toISOString().replaceAll(':', '').replaceAll('.', '');
+        const base = threadId ? `codex_terminal_${threadId.slice(0, 8)}` : 'codex_terminal';
+        const name = `${base}_${stamp}.md`;
+        try {
+          downloadTextAsFile(textarea.value, name);
+          status.textContent = `保存しました: ${name}`;
+        } catch (err) {
+          status.textContent = `保存できませんでした: ${String(err)}`;
+        }
+      });
+
+      group.appendChild(scopeLabel);
+      group.appendChild(scope);
+      group.appendChild(countLabel);
+      group.appendChild(countInput);
+      group.appendChild(turnLabel);
+      group.appendChild(turnInput);
+      group.appendChild(assistantOnlyWrap);
+      group.appendChild(outLabel);
+      group.appendChild(textarea);
+      container.appendChild(group);
+      container.appendChild(hint);
+
+      actions.appendChild(copyBtn);
+      actions.appendChild(dlBtn);
+      container.appendChild(actions);
+      container.appendChild(status);
     });
     return;
   }
