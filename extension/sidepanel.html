@@ -15,7 +15,16 @@
       </div>
       <div class="topbarRight">
         <div class="settings">
-          <button id="settingsBtn" class="btn ghost" aria-expanded="false">設定 ▾</button>
+          <button id="settingsBtn" class="btn ghost" aria-expanded="false" title="設定">
+            <span class="btnIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+                <path d="M19.4 15a7.9 7.9 0 0 0 .1-1 7.9 7.9 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-1.7-1l-.4-2.6H9.1l-.4 2.6a7.6 7.6 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.9 7.9 0 0 0-.1 1c0 .3 0 .7.1 1l-2 1.6 2 3.4 2.4-1c.5.4 1.1.7 1.7 1l.4 2.6h5.8l.4-2.6c.6-.3 1.2-.6 1.7-1l2.4 1 2-3.4-2-1.6z" />
+              </svg>
+            </span>
+            設定
+            <span class="btnCaret" aria-hidden="true">▾</span>
+          </button>
           <div id="settingsMenu" class="settingsMenu" hidden>
             <button class="menuItem" data-action="prompt">プロンプト</button>
             <button class="menuItem" data-action="model">モデル</button>
@@ -34,7 +43,12 @@
       <aside id="settingsPanel" class="settingsPanel" aria-label="settings panel" hidden>
         <div class="panelHeader">
           <div id="panelTitle" class="panelTitle">設定</div>
-          <button id="panelClose" class="iconBtn ghost" aria-label="close panel">×</button>
+          <button id="panelClose" class="iconBtn ghost" aria-label="close panel" title="閉じる">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 6 6 18" />
+              <path d="M6 6 18 18" />
+            </svg>
+          </button>
         </div>
         <div id="panelBody" class="panelBody">
           <p class="muted">ここに設定内容を表示します。</p>
@@ -43,7 +57,11 @@
       <footer class="composer" aria-label="composer">
         <div id="attachments" class="attachments" hidden></div>
         <div id="dropZone" class="composerRow">
-          <button id="attachBtn" class="iconBtn" aria-label="attach" title="画像を添付">＋</button>
+          <button id="attachBtn" class="iconBtn" aria-label="attach" title="画像を添付">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21.4 11.6 12.9 20a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.6 5.6L10.2 17a2 2 0 0 1-2.8-2.8L15.8 5.8" />
+            </svg>
+          </button>
           <textarea
             id="promptInput"
             class="composerInput"
@@ -51,7 +69,21 @@
             placeholder="質問してみましょう（テキスト/コピペ/画像貼り付け）"
             spellcheck="false"
           ></textarea>
-          <button id="clearBtn" class="sendBtn" aria-label="clear input">×</button>
+          <button id="sendBtn" class="btn primary" aria-label="send" title="送信（Enter）">
+            <span class="btnIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 2 11 13" />
+                <path d="M22 2 15 22l-4-9-9-4 20-7z" />
+              </svg>
+            </span>
+            送信
+          </button>
+          <button id="clearBtn" class="iconBtn ghost" aria-label="clear input" title="入力をクリア">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 6 6 18" />
+              <path d="M6 6 18 18" />
+            </svg>
+          </button>
         </div>
         <div id="status" class="hint">
           Enterで送信 / Shift+Enterで改行。実際の拡張は Native Messaging 経由で `codex` を実行します。

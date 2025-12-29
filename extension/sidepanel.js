@@ -49,6 +49,7 @@ const attachBtn = document.getElementById('attachBtn');
 const fileInput = document.getElementById('fileInput');
 
 const promptInput = document.getElementById('promptInput');
+const sendBtn = document.getElementById('sendBtn');
 const clearBtn = document.getElementById('clearBtn');
 
 /** @type {chrome.runtime.Port | null} */
@@ -393,6 +394,7 @@ function scrollToBottom() {
 function setSendEnabled() {
   const hasContent = promptInput.value.trim().length > 0 || attachments.length > 0;
   if (clearBtn) clearBtn.disabled = !hasContent;
+  if (sendBtn) sendBtn.disabled = !hasContent || isRunning;
 }
 
 function autoResizeTextarea() {
@@ -1349,6 +1351,7 @@ async function loadPendingAsk() {
 
 // UI events
 attachBtn.addEventListener('click', () => fileInput.click());
+sendBtn?.addEventListener('click', () => submitPrompt());
 fileInput.addEventListener('change', () => {
   addFiles(fileInput.files).catch(() => {});
   fileInput.value = '';
@@ -1483,7 +1486,9 @@ settingsMenu?.addEventListener('click', (e) => {
   e.stopPropagation();
   const target = e.target;
   if (!(target instanceof HTMLElement)) return;
-  const action = target.dataset.action;
+  const item = target.closest('.menuItem');
+  if (!(item instanceof HTMLElement)) return;
+  const action = item.dataset.action;
   if (!action) return;
 
   toggleSettingsMenu(false);
