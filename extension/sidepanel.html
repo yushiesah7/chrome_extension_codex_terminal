@@ -66,7 +66,7 @@
             id="promptInput"
             class="composerInput"
             rows="1"
-            placeholder="質問してみましょう（テキスト/コピペ/画像貼り付け）"
+            placeholder="質問を書く（Enterで送信 / Shift+Enterで改行）"
             spellcheck="false"
           ></textarea>
           <button id="sendBtn" class="btn primary" aria-label="send" title="送信（Enter）">
@@ -86,7 +86,7 @@
           </button>
         </div>
         <div id="status" class="hint">
-          Enterで送信 / Shift+Enterで改行。実際の拡張は Native Messaging 経由で `codex` を実行します。
+          Enterで送信。Shift+Enterで改行。ローカルの `codex` を実行します。
         </div>
         <input id="fileInput" class="hidden" type="file" accept="image/*" multiple />
       </footer>

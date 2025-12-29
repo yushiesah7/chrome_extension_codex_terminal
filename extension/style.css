@@ -84,14 +84,46 @@ body {
 .brandMeta {
   font-size: 12px;
   color: rgba(230, 237, 243, 0.82);
-  margin-top: 2px;
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.metaChip {
   display: inline-flex;
   align-items: center;
-  width: fit-content;
-  padding: 2px 10px;
+  height: 22px;
+  padding: 0 10px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.10);
   background: rgba(255, 255, 255, 0.04);
+  color: rgba(230, 237, 243, 0.86);
+  white-space: nowrap;
+}
+
+.metaChip.kv {
+  opacity: 0.9;
+}
+
+.metaChip.state {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.metaChip.state.ok {
+  background: rgba(46, 204, 113, 0.12);
+  border-color: rgba(46, 204, 113, 0.22);
+}
+
+.metaChip.state.connecting {
+  background: rgba(88, 166, 255, 0.12);
+  border-color: rgba(88, 166, 255, 0.22);
+}
+
+.metaChip.state.ng {
+  background: rgba(255, 107, 107, 0.10);
+  border-color: rgba(255, 107, 107, 0.22);
 }
 
 .topbarRight {

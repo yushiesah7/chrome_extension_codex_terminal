@@ -379,12 +379,28 @@ async function saveCodexEffort(value) {
 }
 
 function updateMeta() {
-  const parts = [];
-  parts.push(isConnected ? '接続: OK' : isConnecting ? '接続: ...' : '接続: NG');
-  parts.push(`session: ${threadId ? threadId.slice(0, 8) + '…' : '(new)'}`);
-  if (codexModel) parts.push(`model: ${formatModelForMeta(codexModel)}`);
-  if (codexReasoningEffort) parts.push(`effort: ${codexReasoningEffort}`);
-  metaEl.textContent = parts.join(' / ');
+  if (!metaEl) return;
+
+  const sessionLabel = threadId ? threadId.slice(0, 8) + '…' : 'new';
+  const connectionState = isConnected ? 'ok' : isConnecting ? 'connecting' : 'ng';
+  const connectionText = isConnected ? '接続 OK' : isConnecting ? '接続 中' : '接続 NG';
+
+  metaEl.textContent = '';
+  metaEl.classList.toggle('isConnecting', connectionState === 'connecting');
+  metaEl.classList.toggle('isConnected', connectionState === 'ok');
+  metaEl.classList.toggle('isDisconnected', connectionState === 'ng');
+
+  const makeChip = (text, kind) => {
+    const el = document.createElement('span');
+    el.className = `metaChip${kind ? ` ${kind}` : ''}`;
+    el.textContent = text;
+    return el;
+  };
+
+  metaEl.appendChild(makeChip(connectionText, `state ${connectionState}`));
+  metaEl.appendChild(makeChip(`会話 ${sessionLabel}`, 'kv'));
+  if (codexModel) metaEl.appendChild(makeChip(`モデル ${formatModelForMeta(codexModel)}`, 'kv'));
+  if (codexReasoningEffort) metaEl.appendChild(makeChip(`推論 ${codexReasoningEffort}`, 'kv'));
 }
 
 function scrollToBottom() {
@@ -909,7 +925,7 @@ function resetConversation({ clearThread } = {}) {
 
   const bubble = createMessageRow('assistant');
   bubble.innerHTML =
-    '<p><strong>使い方</strong></p><ul><li>下の入力欄に質問を入力して送信</li><li>「＋」/ 画像貼り付け / ドラッグで画像を添付</li></ul>';
+    '<p><strong>はじめに</strong></p><ul><li>下の入力欄に質問を書いて送信</li><li>画像は「添付」ボタン / 貼り付け / ドロップで追加</li><li>設定からモデル・推論レベル・エクスポートを変更</li></ul>';
   scrollToBottom();
 }
 
