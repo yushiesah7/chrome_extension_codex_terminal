@@ -26,12 +26,95 @@
             <span class="btnCaret" aria-hidden="true">▾</span>
           </button>
           <div id="settingsMenu" class="settingsMenu" hidden>
-            <button class="menuItem" data-action="prompt">プロンプト</button>
-            <button class="menuItem" data-action="model">モデル</button>
-            <button class="menuItem" data-action="start-ci">起動CIコマンド</button>
-            <button class="menuItem" data-action="restart-ci">CIリスタート</button>
-            <button class="menuItem" data-action="export-md">Markdownエクスポート</button>
-            <button class="menuItem" data-action="new-chat">新しい会話</button>
+            <button class="menuItem" data-action="prompt">
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 4h16v16H4z" />
+                  <path d="M8 8h8" />
+                  <path d="M8 12h8" />
+                  <path d="M8 16h6" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">前提プロンプト</span>
+                <span class="menuDesc">毎回の指示テンプレを編集</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="model">
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2 22 7 12 12 2 7 12 2z" />
+                  <path d="M22 7v10l-10 5-10-5V7" />
+                  <path d="M12 12v10" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">モデル / 推論</span>
+                <span class="menuDesc">モデルと推論レベルを選択</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="start-ci" data-advanced="1" hidden>
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 5v14l11-7-11-7z" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">起動コマンド</span>
+                <span class="menuDesc">`codex` 実行コマンドを設定</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="restart-ci" data-advanced="1" hidden>
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">CI再起動（コマンド）</span>
+                <span class="menuDesc">CI再起動コマンドを保存/入力へ反映</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="export-md">
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3v12" />
+                  <path d="M7 10l5 5 5-5" />
+                  <path d="M5 21h14" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">Markdownエクスポート</span>
+                <span class="menuDesc">会話ログをコピー/保存</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="help">
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22a10 10 0 1 0-10-10 10 10 0 0 0 10 10z" />
+                  <path d="M12 17h.01" />
+                  <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">ヘルプ / 仕様</span>
+                <span class="menuDesc">使い方・設定・トラブル対応</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="new-chat">
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+                  <path d="M12 8v6" />
+                  <path d="M9 11h6" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">新しい会話（リセット）</span>
+                <span class="menuDesc">会話/スレッドをリセットして開始</span>
+              </span>
+            </button>
           </div>
         </div>
       </div>

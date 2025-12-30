@@ -12,7 +12,7 @@ try {
 
 function postTo(source, message) {
   try {
-    source?.postMessage?.(message, '*');
+    source?.postMessage?.({ __from: 'mermaid_sandbox', ...(message || {}) }, '*');
   } catch {
     // ignore
   }

@@ -7,6 +7,7 @@ const STORAGE_KEY_PROMPT_TEMPLATE = 'promptTemplate';
 const STORAGE_KEY_START_CMD = 'startCommand';
 const STORAGE_KEY_CI_START_CMD = 'ciStartCommand';
 const STORAGE_KEY_CI_RESTART_CMD = 'ciRestartCommand';
+const STORAGE_KEY_SHOW_ADVANCED = 'showAdvancedActions';
 const STORAGE_KEY_CODEX_MODEL = 'codexModel';
 const STORAGE_KEY_CODEX_EFFORT = 'codexReasoningEffort';
 const STORAGE_KEY_CODEX_EFFORT_CAPS = 'codexEffortCapsByModel';
@@ -113,6 +114,34 @@ let pendingPageUrl = '';
 
 let submitSeq = 0;
 
+let showAdvancedActions = false;
+
+function setAdvancedMenuVisible(on) {
+  showAdvancedActions = !!on;
+  try {
+    document.querySelectorAll('[data-advanced]')?.forEach((el) => {
+      if (el instanceof HTMLElement) el.hidden = !showAdvancedActions;
+    });
+  } catch {
+    // ignore
+  }
+  try {
+    chrome.storage.local.set({ [STORAGE_KEY_SHOW_ADVANCED]: showAdvancedActions }).catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
+async function loadAdvancedMenuVisible() {
+  try {
+    const data = await chrome.storage.local.get([STORAGE_KEY_SHOW_ADVANCED]);
+    showAdvancedActions = !!data[STORAGE_KEY_SHOW_ADVANCED];
+  } catch {
+    showAdvancedActions = false;
+  }
+  setAdvancedMenuVisible(showAdvancedActions);
+}
+
 function uploadKey(requestId, imageId) {
   return `${requestId}:${imageId}`;
 }
@@ -132,6 +161,102 @@ function rejectAllUploadWaiters(reason) {
 function safeString(value) {
   return typeof value === 'string' ? value : '';
 }
+
+const DIAG_LOG_MAX = 240;
+let diagLogs = [];
+
+function diagSafeJson(value) {
+  try {
+    return JSON.stringify(
+      value,
+      (_k, v) => {
+        if (typeof v === 'string' && v.length > 600) return `${v.slice(0, 600)}…`;
+        return v;
+      },
+      0
+    );
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return '';
+    }
+  }
+}
+
+function diagLog(level, event, data) {
+  const now = new Date();
+  const line = {
+    t: now.toISOString(),
+    level: safeString(level) || 'info',
+    event: safeString(event) || 'event',
+    data
+  };
+  diagLogs.push(line);
+  if (diagLogs.length > DIAG_LOG_MAX) diagLogs = diagLogs.slice(diagLogs.length - DIAG_LOG_MAX);
+}
+
+function diagDumpText() {
+  const now = new Date();
+  let manifestVersion = '';
+  try {
+    manifestVersion = safeString(chrome?.runtime?.getManifest?.()?.version);
+  } catch {
+    manifestVersion = '';
+  }
+  const header = {
+    generatedAt: now.toISOString(),
+    extensionVersion: manifestVersion,
+    userAgent: safeString(navigator.userAgent),
+    href: safeString(location.href)
+  };
+  const lines = [];
+  lines.push('### diag header');
+  lines.push(diagSafeJson(header));
+  lines.push('');
+  lines.push('### diag logs');
+  for (const row of diagLogs) {
+    lines.push(`${row.t}\t${row.level}\t${row.event}\t${diagSafeJson(row.data)}`);
+  }
+  return lines.join('\n');
+}
+
+window.addEventListener('error', (e) => {
+  try {
+    diagLog('error', 'window_error', {
+      message: safeString(e?.message),
+      filename: safeString(e?.filename),
+      lineno: e?.lineno,
+      colno: e?.colno
+    });
+  } catch {
+    // ignore
+  }
+});
+
+window.addEventListener('unhandledrejection', (e) => {
+  try {
+    diagLog('error', 'unhandledrejection', { reason: String(e?.reason) });
+  } catch {
+    // ignore
+  }
+});
+
+window.addEventListener('securitypolicyviolation', (e) => {
+  try {
+    diagLog('error', 'csp_violation', {
+      blockedURI: safeString(e?.blockedURI),
+      violatedDirective: safeString(e?.violatedDirective),
+      effectiveDirective: safeString(e?.effectiveDirective),
+      originalPolicy: safeString(e?.originalPolicy),
+      sourceFile: safeString(e?.sourceFile),
+      lineNumber: e?.lineNumber,
+      columnNumber: e?.columnNumber
+    });
+  } catch {
+    // ignore
+  }
+});
 
 function setStatus(text) {
   statusEl.textContent = text;
@@ -466,7 +591,7 @@ function renderMarkdownToHtml(markdown) {
 
   try {
     const html = marked.parse(markdown, { mangle: false, headerIds: false });
-    return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+    return DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, ADD_ATTR: ['class'] });
   } catch {
     return null;
   }
@@ -483,10 +608,20 @@ const mermaidWaiters = new Map();
 
 function handleMermaidSandboxMessage(event) {
   if (!mermaidSandboxFrame?.contentWindow) return;
-  if (event.source !== mermaidSandboxFrame.contentWindow) return;
-
   const msg = event.data;
   if (!msg || typeof msg !== 'object') return;
+  if (msg.__from !== 'mermaid_sandbox') return;
+
+  try {
+    diagLog('info', 'mermaid_sandbox_message', {
+      type: safeString(msg.type),
+      id: safeString(msg.id),
+      svgLen: typeof msg.svg === 'string' ? msg.svg.length : undefined,
+      error: typeof msg.error === 'string' ? msg.error : undefined
+    });
+  } catch {
+    // ignore
+  }
 
   if (msg.type === 'mermaid_ready') {
     const waiter = mermaidSandboxReadyWaiter;
@@ -535,11 +670,24 @@ function ensureMermaidSandboxReady() {
 
   mermaidSandboxReadyPromise = new Promise((resolve, reject) => {
     const frame = document.createElement('iframe');
-    frame.src = 'mermaid_sandbox.html';
-    frame.style.display = 'none';
+    frame.src = chrome?.runtime?.getURL ? chrome.runtime.getURL('mermaid_sandbox.html') : 'mermaid_sandbox.html';
+    frame.style.position = 'fixed';
+    frame.style.left = '-10000px';
+    frame.style.top = '0';
+    frame.style.width = '1024px';
+    frame.style.height = '768px';
+    frame.style.opacity = '0';
+    frame.style.pointerEvents = 'none';
+    frame.style.border = '0';
     frame.setAttribute('title', 'mermaid sandbox');
     document.body.appendChild(frame);
     mermaidSandboxFrame = frame;
+
+    try {
+      diagLog('info', 'mermaid_sandbox_create', { src: frame.src });
+    } catch {
+      // ignore
+    }
 
     const timer = setTimeout(() => {
       const waiter = mermaidSandboxReadyWaiter;
@@ -567,6 +715,13 @@ async function renderMermaidSvg(code) {
   if (!mermaidSandboxFrame?.contentWindow) throw new Error('Mermaid sandbox が利用できません');
 
   const id = `mmd-${uid()}`;
+
+  try {
+    diagLog('info', 'mermaid_render_request', { id, codeLen: src.length });
+  } catch {
+    // ignore
+  }
+
   const done = new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       mermaidWaiters.delete(id);
@@ -577,6 +732,26 @@ async function renderMermaidSvg(code) {
 
   mermaidSandboxFrame.contentWindow.postMessage({ type: 'render_mermaid', id, code: src }, '*');
   return done;
+}
+
+function inspectSvgForDiag(svgHtml) {
+  const s = safeString(svgHtml);
+  const result = { svgLen: s.length, hasSvgTag: s.includes('<svg') };
+  try {
+    const doc = new DOMParser().parseFromString(s, 'image/svg+xml');
+    const svgEl = doc.querySelector('svg');
+    if (svgEl) {
+      result.viewBox = safeString(svgEl.getAttribute('viewBox'));
+      result.width = safeString(svgEl.getAttribute('width'));
+      result.height = safeString(svgEl.getAttribute('height'));
+      result.preserveAspectRatio = safeString(svgEl.getAttribute('preserveAspectRatio'));
+    }
+    const parseError = doc.querySelector('parsererror');
+    if (parseError) result.parseError = safeString(parseError.textContent).slice(0, 180);
+  } catch (e) {
+    result.inspectError = String(e);
+  }
+  return result;
 }
 
 function renderMermaidIn(container) {
@@ -590,17 +765,50 @@ function renderMermaidIn(container) {
     const parentPre = codeEl.closest('pre');
     const code = codeEl.textContent || '';
     if (!code.trim()) return;
+
+    try {
+      diagLog('info', 'mermaid_detected', {
+        codeLen: code.length,
+        hasParentPre: !!parentPre,
+        containerTag: safeString(container.tagName)
+      });
+    } catch {
+      // ignore
+    }
+
     renderMermaidSvg(code)
       .then((svg) => {
+        try {
+          diagLog('info', 'mermaid_render_result_raw', inspectSvgForDiag(svg));
+        } catch {
+          // ignore
+        }
+
         const svgHtml =
           typeof DOMPurify?.sanitize === 'function'
             ? DOMPurify.sanitize(svg, {
                 USE_PROFILES: { svg: true, svgFilters: true },
                 // Mermaid のSVGは <style> と class に依存するため許可する（securityLevel=strict で生成）
-                ADD_TAGS: ['style'],
-                ADD_ATTR: ['class', 'style']
+                ADD_TAGS: ['style', 'foreignObject'],
+                ADD_ATTR: [
+                  'class',
+                  'style',
+                  'xmlns',
+                  'viewBox',
+                  'width',
+                  'height',
+                  'preserveAspectRatio',
+                  'href',
+                  'xlink:href'
+                ]
               })
             : svg;
+
+        try {
+          diagLog('info', 'mermaid_render_result_sanitized', inspectSvgForDiag(svgHtml));
+        } catch {
+          // ignore
+        }
 
         const block = document.createElement('div');
         block.className = 'mermaidBlock';
@@ -654,7 +862,19 @@ function renderMermaidIn(container) {
 
         scrollToBottom();
       })
-      .catch(() => {});
+      .catch((e) => {
+        try {
+          console.warn('Mermaid render failed', e);
+        } catch {
+          // ignore
+        }
+
+        try {
+          diagLog('error', 'mermaid_render_failed', { message: String(e) });
+        } catch {
+          // ignore
+        }
+      });
   });
 }
 
@@ -1510,9 +1730,14 @@ settingsMenu?.addEventListener('click', (e) => {
   toggleSettingsMenu(false);
 
   if (action === 'prompt') {
-    showPanel('プロンプト設定', (container) => {
+    showPanel('前提プロンプト', (container) => {
       const group = document.createElement('div');
       group.className = 'panelGroup';
+
+      const intro = document.createElement('p');
+      intro.className = 'panelHelp';
+      intro.textContent = '毎回の送信前に付与する前提プロンプトです。よく使うルールや口調をここに入れます。';
+      container.appendChild(intro);
 
       const label = document.createElement('label');
       label.className = 'panelLabel';
@@ -1563,9 +1788,14 @@ settingsMenu?.addEventListener('click', (e) => {
   }
 
   if (action === 'model') {
-    showPanel('モデル', (container) => {
+    showPanel('モデル / 推論', (container) => {
       const group = document.createElement('div');
       group.className = 'panelGroup';
+
+      const intro = document.createElement('p');
+      intro.className = 'panelHelp';
+      intro.textContent = '使用するモデルと推論レベルを切り替えます。空欄なら codex の設定（~/.codex/config.toml）を使用します。';
+      container.appendChild(intro);
 
       const label = document.createElement('label');
       label.className = 'panelLabel';
@@ -1680,6 +1910,11 @@ settingsMenu?.addEventListener('click', (e) => {
       const group = document.createElement('div');
       group.className = 'panelGroup';
 
+      const intro = document.createElement('p');
+      intro.className = 'panelHelp';
+      intro.textContent = 'ローカルで `codex` を起動するコマンドです。環境に合わせて編集します。';
+      container.appendChild(intro);
+
       const label = document.createElement('label');
       label.className = 'panelLabel';
       label.textContent = '起動CIコマンド';
@@ -1729,9 +1964,14 @@ settingsMenu?.addEventListener('click', (e) => {
   }
 
   if (action === 'restart-ci') {
-    showPanel('CIリスタート', (container) => {
+    showPanel('CI再起動（コマンド）', (container) => {
       const group = document.createElement('div');
       group.className = 'panelGroup';
+
+      const intro = document.createElement('p');
+      intro.className = 'panelHelp';
+      intro.textContent = 'CIを再起動するためのコマンドを保存します（会話のリセットではありません）。「入力欄に反映」でそのまま送信できます。';
+      container.appendChild(intro);
 
       const label = document.createElement('label');
       label.className = 'panelLabel';
@@ -1785,6 +2025,11 @@ settingsMenu?.addEventListener('click', (e) => {
       const group = document.createElement('div');
       group.className = 'panelGroup';
 
+      const intro = document.createElement('p');
+      intro.className = 'panelHelp';
+      intro.textContent = '会話ログをMarkdownとしてコピー/保存します。共有や貼り付け用。';
+      container.appendChild(intro);
+
       const scopeLabel = document.createElement('label');
       scopeLabel.className = 'panelLabel';
       scopeLabel.textContent = '範囲';
@@ -1792,10 +2037,10 @@ settingsMenu?.addEventListener('click', (e) => {
       const scope = document.createElement('select');
       scope.className = 'panelSelect';
       for (const opt of [
-        { value: 'all', label: '全ての会話（全往復）' },
-        { value: 'last', label: '最新の会話（1往復）' },
-        { value: 'lastN', label: '最新からN往復' },
-        { value: 'turn', label: '指定の1往復（番号）' }
+        { value: 'all', label: '全て（全往復）' },
+        { value: 'last', label: '最新（1往復）' },
+        { value: 'lastN', label: '最新N（N往復）' },
+        { value: 'turn', label: '指定（番号）' }
       ]) {
         const o = document.createElement('option');
         o.value = opt.value;
@@ -1854,7 +2099,7 @@ settingsMenu?.addEventListener('click', (e) => {
       const hint = document.createElement('p');
       hint.className = 'muted';
       hint.textContent =
-        '※ 画像はファイルとして埋め込まず、枚数だけメモします。コピー/保存はボタン操作（ユーザー操作）で実行します。';
+        '※ 画像そのものは埋め込まず、枚数だけメモします。コピー/保存はユーザー操作で実行します。';
 
       const status = document.createElement('p');
       status.className = 'muted';
@@ -1871,7 +2116,7 @@ settingsMenu?.addEventListener('click', (e) => {
           assistantOnly: assistantOnly.checked
         });
         textarea.value = md;
-        status.textContent = `現在: ${conversationTurns.length}往復`;
+        status.textContent = `会話: ${conversationTurns.length}往復`;
 
         const useN = mode === 'lastN';
         countLabel.hidden = !useN;
@@ -1944,9 +2189,232 @@ settingsMenu?.addEventListener('click', (e) => {
   }
 
   if (action === 'new-chat') {
+    setStatus('新しい会話を開始します。');
     resetConversation({ clearThread: true });
     pendingSelectionText = '';
     pendingPageUrl = '';
+    return;
+  }
+
+  if (action === 'help') {
+    showPanel('ヘルプ / 仕様', (container) => {
+      const intro = document.createElement('p');
+      intro.className = 'panelHelp';
+      intro.textContent = 'この拡張の使い方、設定、よくある問題の解決方法をまとめています。';
+      container.appendChild(intro);
+
+      try {
+        diagLog('info', 'help_open', { showAdvancedActions });
+      } catch {
+        // ignore
+      }
+
+      const advancedWrap = document.createElement('label');
+      advancedWrap.className = 'panelToggle';
+
+      const advancedToggle = document.createElement('input');
+      advancedToggle.type = 'checkbox';
+      advancedToggle.checked = showAdvancedActions;
+
+      const advancedText = document.createElement('span');
+      advancedText.textContent = '開発者向けメニューを表示（CI/起動コマンド）';
+
+      advancedWrap.appendChild(advancedToggle);
+      advancedWrap.appendChild(advancedText);
+      container.appendChild(advancedWrap);
+
+      const advancedHint = document.createElement('p');
+      advancedHint.className = 'muted';
+      advancedHint.textContent =
+        'CI系は開発/運用のための補助です。通常の利用（質問→回答）には不要なので、必要な場合だけ表示してください。';
+      container.appendChild(advancedHint);
+
+      advancedToggle.addEventListener('change', () => {
+        setAdvancedMenuVisible(advancedToggle.checked);
+      });
+
+      const s1 = document.createElement('div');
+      s1.className = 'panelGroup';
+
+      const h1 = document.createElement('p');
+      h1.className = 'panelLabel';
+      h1.textContent = '基本の使い方';
+
+      const p1 = document.createElement('p');
+      p1.className = 'muted';
+      p1.textContent = '下の入力欄に質問を書いて送信します。画像は添付ボタン/貼り付け/ドロップで追加できます。';
+
+      const h2 = document.createElement('p');
+      h2.className = 'panelLabel';
+      h2.textContent = '設定の意味';
+
+      const p2 = document.createElement('p');
+      p2.className = 'muted';
+      p2.textContent = '前提プロンプト: 毎回のルール。モデル/推論: 出力の傾向。起動コマンド: `codex` 実行。';
+
+      const h3 = document.createElement('p');
+      h3.className = 'panelLabel';
+      h3.textContent = 'トラブルシュート';
+
+      const p3 = document.createElement('p');
+      p3.className = 'muted';
+      p3.textContent = '接続NGのときは Native Host のセットアップやホスト名一致を確認してください。';
+
+      s1.appendChild(h1);
+      s1.appendChild(p1);
+      s1.appendChild(h2);
+      s1.appendChild(p2);
+      s1.appendChild(h3);
+      s1.appendChild(p3);
+      container.appendChild(s1);
+
+      const diagGroup = document.createElement('div');
+      diagGroup.className = 'panelGroup';
+
+      const diagTitle = document.createElement('p');
+      diagTitle.className = 'panelLabel';
+      diagTitle.textContent = '診断ログ（Mermaid / CSP）';
+
+      const diagDesc = document.createElement('p');
+      diagDesc.className = 'muted';
+      diagDesc.textContent =
+        'Mermaid図が出ない等のトラブル解析用ログです。コピーして貼り付けるか、ファイル保存して共有できます。';
+
+      const diagTextarea = document.createElement('textarea');
+      diagTextarea.className = 'panelTextarea';
+      diagTextarea.rows = 7;
+      diagTextarea.readOnly = true;
+      diagTextarea.value = diagDumpText();
+
+      const diagActions = document.createElement('div');
+      diagActions.className = 'panelActions';
+
+      const diagRefreshBtn = document.createElement('button');
+      diagRefreshBtn.className = 'btn ghost';
+      diagRefreshBtn.type = 'button';
+      diagRefreshBtn.textContent = '更新';
+
+      const diagCopyBtn = document.createElement('button');
+      diagCopyBtn.className = 'btn';
+      diagCopyBtn.type = 'button';
+      diagCopyBtn.textContent = 'ログをコピー';
+
+      const diagDlBtn = document.createElement('button');
+      diagDlBtn.className = 'btn ghost';
+      diagDlBtn.type = 'button';
+      diagDlBtn.textContent = 'ログを保存';
+
+      const diagClearBtn = document.createElement('button');
+      diagClearBtn.className = 'btn ghost';
+      diagClearBtn.type = 'button';
+      diagClearBtn.textContent = 'ログをクリア';
+
+      const diagStatus = document.createElement('p');
+      diagStatus.className = 'muted';
+      diagStatus.textContent = '';
+
+      const refreshDiag = () => {
+        diagTextarea.value = diagDumpText();
+      };
+
+      diagRefreshBtn.addEventListener('click', () => {
+        refreshDiag();
+        diagStatus.textContent = '更新しました。';
+      });
+
+      diagCopyBtn.addEventListener('click', () => {
+        refreshDiag();
+        copyTextToClipboard(diagTextarea.value)
+          .then(() => {
+            diagStatus.textContent = 'コピーしました。';
+          })
+          .catch((err) => {
+            diagStatus.textContent = `コピーできませんでした: ${String(err)}`;
+          });
+      });
+
+      diagDlBtn.addEventListener('click', () => {
+        refreshDiag();
+        const now = new Date();
+        const stamp = now.toISOString().replaceAll(':', '').replaceAll('.', '');
+        const name = `codex_terminal_diag_${stamp}.txt`;
+        try {
+          downloadTextAsFile(diagTextarea.value, name);
+          diagStatus.textContent = `保存しました: ${name}`;
+        } catch (err) {
+          diagStatus.textContent = `保存できませんでした: ${String(err)}`;
+        }
+      });
+
+      diagClearBtn.addEventListener('click', () => {
+        diagLogs = [];
+        try {
+          diagLog('info', 'diag_cleared');
+        } catch {
+          // ignore
+        }
+        refreshDiag();
+        diagStatus.textContent = 'クリアしました。';
+      });
+
+      diagGroup.appendChild(diagTitle);
+      diagGroup.appendChild(diagDesc);
+      diagGroup.appendChild(diagTextarea);
+
+      diagActions.appendChild(diagRefreshBtn);
+      diagActions.appendChild(diagCopyBtn);
+      diagActions.appendChild(diagDlBtn);
+      diagActions.appendChild(diagClearBtn);
+      diagGroup.appendChild(diagActions);
+      diagGroup.appendChild(diagStatus);
+      container.appendChild(diagGroup);
+
+      const actions = document.createElement('div');
+      actions.className = 'panelActions';
+
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'btn';
+      copyBtn.type = 'button';
+      copyBtn.textContent = '仕様をコピー';
+
+      const status = document.createElement('p');
+      status.className = 'muted';
+      status.textContent = '';
+
+      const specText = [
+        '# Codex Terminal（Chrome拡張）',
+        '',
+        'この拡張は、サイドパネルからローカルの `codex` を実行して対話するためのUIです。',
+        '',
+        '## 操作',
+        '- Enter: 送信',
+        '- Shift+Enter: 改行',
+        '- 画像: 添付/貼り付け/ドロップ',
+        '',
+        '## 設定',
+        '- 前提プロンプト: 毎回の指示テンプレ',
+        '- モデル/推論: 出力の傾向を調整',
+        '- 起動コマンド: `codex` 実行コマンド',
+        '',
+        '## エクスポート',
+        '- 会話ログをMarkdownでコピー/保存',
+        ''
+      ].join('\n');
+
+      copyBtn.addEventListener('click', () => {
+        copyTextToClipboard(specText)
+          .then(() => {
+            status.textContent = 'コピーしました。';
+          })
+          .catch((err) => {
+            status.textContent = `コピーできませんでした: ${String(err)}`;
+          });
+      });
+
+      actions.appendChild(copyBtn);
+      container.appendChild(actions);
+      container.appendChild(status);
+    });
     return;
   }
 });
@@ -1960,6 +2428,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 async function init() {
   await loadPromptTemplate();
   await loadCiCommands();
+  await loadAdvancedMenuVisible();
   await loadCodexModel();
   await loadCodexEffort();
   await loadEffortCapsByModel();
