@@ -17,6 +17,7 @@ const LOG_FILE = path.join(DEFAULT_WORKDIR, 'native_host.log');
 const UPLOAD_ROOT = path.join(DEFAULT_WORKDIR, 'uploads');
 const PATH_SEP = process.platform === 'win32' ? ';' : ':';
 const UPLOAD_TTL_MS = 10 * 60 * 1000;
+const UPLOAD_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_UPLOAD_IMAGES = 4;
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -33,6 +34,8 @@ let codexRequestId = null;
  * @type {Map<string, {dir:string, createdAt:number, images: Map<string, {path:string, expectedSize:number, bytes:number, nextSeq:number, done:boolean}>}>}
  */
 const uploads = new Map();
+
+let uploadCleanupTimer = null;
 
 function logLine(line) {
   try {
@@ -190,6 +193,22 @@ function cleanupExpiredUploads() {
   }
 }
 
+function ensurePeriodicUploadCleanup() {
+  if (uploadCleanupTimer) return;
+  uploadCleanupTimer = setInterval(() => {
+    try {
+      cleanupExpiredUploads();
+    } catch (e) {
+      logLine(`cleanupExpiredUploads failed: ${String(e)}`);
+    }
+  }, UPLOAD_CLEANUP_INTERVAL_MS);
+  try {
+    uploadCleanupTimer.unref?.();
+  } catch {
+    // ignore
+  }
+}
+
 function getOrCreateUploadState(requestId) {
   cleanupExpiredUploads();
 
@@ -197,6 +216,7 @@ function getOrCreateUploadState(requestId) {
   if (existing) return existing;
 
   ensureWorkdir();
+  ensurePeriodicUploadCleanup();
 
   const dir = path.join(UPLOAD_ROOT, requestId);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });

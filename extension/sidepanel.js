@@ -532,6 +532,49 @@ function scrollToBottom() {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
+let composerResizeObserver = null;
+let composerHeightRaf = 0;
+let lastComposerHeightPx = 0;
+
+function updateComposerHeightVar() {
+  const composer = document.querySelector('.composer');
+  if (!(composer instanceof HTMLElement)) return;
+  const rect = composer.getBoundingClientRect();
+  const next = Math.max(0, Math.ceil(rect.height));
+  if (!next || next === lastComposerHeightPx) return;
+  lastComposerHeightPx = next;
+  try {
+    document.documentElement.style.setProperty('--composer-height', `${next}px`);
+  } catch {
+    // ignore
+  }
+}
+
+function scheduleComposerHeightUpdate() {
+  if (composerHeightRaf) return;
+  composerHeightRaf = requestAnimationFrame(() => {
+    composerHeightRaf = 0;
+    updateComposerHeightVar();
+  });
+}
+
+function installComposerHeightObserver() {
+  scheduleComposerHeightUpdate();
+  if (composerResizeObserver) return;
+  const composer = document.querySelector('.composer');
+  if (!(composer instanceof HTMLElement)) return;
+  if (typeof ResizeObserver !== 'function') return;
+  composerResizeObserver = new ResizeObserver(() => scheduleComposerHeightUpdate());
+  composerResizeObserver.observe(composer);
+  window.addEventListener(
+    'resize',
+    () => {
+      scheduleComposerHeightUpdate();
+    },
+    { passive: true }
+  );
+}
+
 function setSendEnabled() {
   const hasContent = promptInput.value.trim().length > 0 || attachments.length > 0;
   if (clearBtn) clearBtn.disabled = !hasContent;
@@ -542,6 +585,7 @@ function autoResizeTextarea() {
   promptInput.style.height = 'auto';
   const max = 180;
   promptInput.style.height = Math.min(promptInput.scrollHeight, max) + 'px';
+  scheduleComposerHeightUpdate();
 }
 
 function applyToPromptInput(value) {
@@ -736,7 +780,14 @@ async function renderMermaidSvg(code) {
     mermaidWaiters.set(id, { resolve, reject, timer });
   });
 
-  mermaidSandboxFrame.contentWindow.postMessage({ type: 'render_mermaid', id, code: src }, '*');
+  let sandboxOrigin = '';
+  try {
+    sandboxOrigin = new URL(mermaidSandboxFrame.src, location.href).origin;
+  } catch {
+    sandboxOrigin = '';
+  }
+  if (!sandboxOrigin) throw new Error('Mermaid sandbox origin を特定できません');
+  mermaidSandboxFrame.contentWindow.postMessage({ type: 'render_mermaid', id, code: src }, sandboxOrigin);
   return done;
 }
 
@@ -1421,6 +1472,7 @@ function renderAttachments() {
   attachmentsEl.innerHTML = '';
   if (!attachments.length) {
     attachmentsEl.hidden = true;
+    scheduleComposerHeightUpdate();
     return;
   }
   attachmentsEl.hidden = false;
@@ -1454,6 +1506,7 @@ function renderAttachments() {
     card.appendChild(rm);
     attachmentsEl.appendChild(card);
   }
+  scheduleComposerHeightUpdate();
 }
 
 function uid() {
@@ -1640,15 +1693,16 @@ function buildUserMarkdown({ userText, selectionText, pageUrl, hasImages }) {
 async function sendMessageToCodex({ userText, selectionText, pageUrl, files }) {
   if (isRunning) return;
 
+  const safeFiles = Array.isArray(files) ? files : [];
   const hasText = safeString(userText).trim().length > 0;
   const hasSelection = safeString(selectionText).trim().length > 0;
-  const hasImages = Array.isArray(files) && files.length > 0;
+  const hasImages = safeFiles.length > 0;
   if (!hasText && !hasSelection && !hasImages) return;
 
   // UI: user message
   addUserMessage({
     markdown: buildUserMarkdown({ userText, selectionText, pageUrl, hasImages }),
-    imagePreviews: files.map((f) => f.previewUrl)
+    imagePreviews: safeFiles.map((f) => f.previewUrl)
   });
 
   // UI: start assistant
@@ -1670,10 +1724,17 @@ async function sendMessageToCodex({ userText, selectionText, pageUrl, files }) {
 
   // upload images
   const imageIds = [];
-  for (const f of files) {
-    // eslint-disable-next-line no-await-in-loop
-    await uploadImage({ requestId, imageId: f.id, file: f.file });
-    imageIds.push(f.id);
+  try {
+    for (const f of safeFiles) {
+      // eslint-disable-next-line no-await-in-loop
+      await uploadImage({ requestId, imageId: f.id, file: f.file });
+      imageIds.push(f.id);
+    }
+  } catch (e) {
+    isRunning = false;
+    setSendEnabled();
+    failAssistant(`[Error] 画像アップロード失敗:\n${String(e?.message || e)}`);
+    return;
   }
 
   const prompt = buildCodexPrompt({
@@ -2598,6 +2659,7 @@ async function init() {
 
   resetConversation({ clearThread: false });
   autoResizeTextarea();
+  installComposerHeightObserver();
   setSendEnabled();
 
   // 接続は必要になったら行う（起動時に失敗ログを出さない）

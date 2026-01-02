@@ -16,6 +16,7 @@
   --border-weak: rgba(255, 255, 255, 0.12);
   --shadow-1: 0 10px 30px rgba(0, 0, 0, 0.35);
   --shadow-2: 0 18px 36px rgba(0, 0, 0, 0.45);
+  --composer-height: 148px;
 }
 
 html,
@@ -286,7 +287,7 @@ body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 16px 12px 148px;
+  padding: 16px 12px calc(var(--composer-height, 148px) + 16px);
   display: flex;
   flex-direction: column;
   gap: 10px;
