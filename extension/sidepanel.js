@@ -903,14 +903,58 @@ function appendImagesToBubble(bubble, previewUrls) {
   bubble.appendChild(grid);
 }
 
+function ensureBubbleCopyAction(bubble) {
+  if (!(bubble instanceof HTMLElement)) return;
+  if (bubble.querySelector('.msgActions')) return;
+
+  const actions = document.createElement('div');
+  actions.className = 'msgActions';
+
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'miniIconBtn ghost';
+  copyBtn.type = 'button';
+  copyBtn.title = 'このコメントをコピー';
+  copyBtn.setAttribute('aria-label', 'このコメントをコピー');
+  copyBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M8 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />' +
+    '<rect x="8" y="2" width="12" height="16" rx="2" ry="2" />' +
+    '</svg>';
+
+  copyBtn.addEventListener('click', () => {
+    const text = safeString(bubble.dataset.rawMarkdown || bubble.textContent);
+    copyTextToClipboard(text)
+      .then(() => {
+        setStatus('コメントをコピーしました');
+      })
+      .catch((e) => {
+        try {
+          setStatus(`コピー失敗: ${String(e?.message || e)}`);
+        } catch {
+          setStatus('コピー失敗');
+        }
+      });
+  });
+
+  actions.appendChild(copyBtn);
+  bubble.appendChild(actions);
+}
+
 function setBubbleMarkdown(bubble, markdown) {
   const html = renderMarkdownToHtml(markdown);
+  try {
+    bubble.dataset.rawMarkdown = safeString(markdown);
+  } catch {
+    // ignore
+  }
   if (html) {
     bubble.innerHTML = html;
     renderMermaidIn(bubble);
   } else {
     bubble.textContent = markdown;
   }
+
+  ensureBubbleCopyAction(bubble);
 }
 
 function addUserMessage({ markdown, imagePreviews }) {
@@ -1728,6 +1772,22 @@ settingsMenu?.addEventListener('click', (e) => {
   if (!action) return;
 
   toggleSettingsMenu(false);
+
+  if (action === 'copy-all') {
+    const md = buildConversationMarkdown({ mode: 'all', count: 1, turnNumber: 1, assistantOnly: false });
+    copyTextToClipboard(md)
+      .then(() => {
+        setStatus('会話をコピーしました');
+      })
+      .catch((e) => {
+        try {
+          setStatus(`コピー失敗: ${String(e?.message || e)}`);
+        } catch {
+          setStatus('コピー失敗');
+        }
+      });
+    return;
+  }
 
   if (action === 'prompt') {
     showPanel('前提プロンプト', (container) => {

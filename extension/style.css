@@ -314,6 +314,50 @@ body {
   background: var(--surface-1);
   word-break: break-word;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+  position: relative;
+}
+
+.msgActions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.bubble:hover .msgActions,
+.bubble:focus-within .msgActions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.miniIconBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(17, 22, 28, 0.65);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.miniIconBtn:hover {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.miniIconBtn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.miniIconBtn.ghost {
+  background: rgba(17, 22, 28, 0.45);
 }
 
 .bubble.user {
