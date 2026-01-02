@@ -344,6 +344,31 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+}
+
+.miniIconBtn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  right: 0;
+  top: -10px;
+  transform: translateY(-100%);
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(17, 22, 28, 0.92);
+  color: rgba(230, 237, 243, 0.92);
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+  box-shadow: var(--shadow-1);
+}
+
+.miniIconBtn:hover::after,
+.miniIconBtn:focus-visible::after {
+  opacity: 1;
 }
 
 .miniIconBtn:hover {
@@ -795,12 +820,30 @@ body {
 .mermaidFooter {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 6px;
+}
+
+.mermaidFooter .btn {
+  height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
 .copyStatus {
   font-size: 12px;
-  color: rgba(230, 237, 243, 0.75);
+  color: rgba(230, 237, 243, 0.8);
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.copyStatus:empty {
+  display: none;
 }
 
 .dots {

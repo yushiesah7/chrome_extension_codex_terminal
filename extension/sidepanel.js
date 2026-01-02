@@ -820,16 +820,23 @@ function renderMermaidIn(container) {
         const footer = document.createElement('div');
         footer.className = 'mermaidFooter';
         const copyBtn = document.createElement('button');
-        copyBtn.className = 'btn ghost copyBtn';
+        copyBtn.className = 'miniIconBtn ghost copyBtn';
         copyBtn.type = 'button';
-        copyBtn.textContent = 'コピー';
+        copyBtn.title = 'Mermaidコードをコピー';
+        copyBtn.setAttribute('aria-label', 'Mermaidコードをコピー');
+        copyBtn.setAttribute('data-tooltip', 'Mermaidコードをコピー');
+        copyBtn.innerHTML =
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M8 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />' +
+          '<rect x="8" y="2" width="12" height="16" rx="2" ry="2" />' +
+          '</svg>';
         const copyStatus = document.createElement('span');
         copyStatus.className = 'copyStatus';
         copyBtn.addEventListener('click', () => {
           navigator.clipboard
             ?.writeText(code)
             .then(() => {
-              copyStatus.textContent = 'コピーしました';
+              copyStatus.textContent = 'Mermaidコードをコピーしました';
               setTimeout(() => {
                 copyStatus.textContent = '';
               }, 1200);
@@ -913,8 +920,9 @@ function ensureBubbleCopyAction(bubble) {
   const copyBtn = document.createElement('button');
   copyBtn.className = 'miniIconBtn ghost';
   copyBtn.type = 'button';
-  copyBtn.title = 'このコメントをコピー';
-  copyBtn.setAttribute('aria-label', 'このコメントをコピー');
+  copyBtn.title = 'コメント全文をコピー';
+  copyBtn.setAttribute('aria-label', 'コメント全文をコピー');
+  copyBtn.setAttribute('data-tooltip', 'コメント全文をコピー');
   copyBtn.innerHTML =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M8 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />' +
@@ -925,7 +933,7 @@ function ensureBubbleCopyAction(bubble) {
     const text = safeString(bubble.dataset.rawMarkdown || bubble.textContent);
     copyTextToClipboard(text)
       .then(() => {
-        setStatus('コメントをコピーしました');
+        setStatus('コメント全文をコピーしました');
       })
       .catch((e) => {
         try {
