@@ -591,7 +591,13 @@ function renderMarkdownToHtml(markdown) {
 
   try {
     const html = marked.parse(markdown, { mangle: false, headerIds: false });
-    return DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, ADD_ATTR: ['class'] });
+    return DOMPurify.sanitize(html, {
+      USE_PROFILES: { html: true },
+      ADD_ATTR: ['class'],
+      // 追跡/外部リクエストやUI崩しを避ける（添付画像は別DOMで描画するため影響なし）
+      FORBID_TAGS: ['img', 'style'],
+      FORBID_ATTR: ['style']
+    });
   } catch {
     return null;
   }
