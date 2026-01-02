@@ -16,6 +16,7 @@ const MODEL_PRESETS = [
   { value: 'gpt-5.2-codex', label: 'gpt-5.2-codex' },
   { value: 'gpt-5.1-codex-max', label: 'gpt-5.1-codex-max' },
   { value: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
+  { value: 'gpt-5.2', label: 'gpt-5.2' }
 ];
 
 const EFFORT_PRESETS = [
@@ -421,14 +422,7 @@ function toModelPreset(value) {
 async function loadCodexModel() {
   try {
     const data = await chrome.storage.local.get([STORAGE_KEY_CODEX_MODEL]);
-    const v = safeString(data[STORAGE_KEY_CODEX_MODEL]).trim();
-    // 互換性: 古い値の移行（Codex CLIのモデル名に合わせる）
-    if (v === 'gpt-5.2') {
-      codexModel = 'gpt-5.2-codex';
-      chrome.storage.local.set({ [STORAGE_KEY_CODEX_MODEL]: codexModel }).catch(() => {});
-    } else {
-      codexModel = v;
-    }
+    codexModel = safeString(data[STORAGE_KEY_CODEX_MODEL]).trim();
   } catch {
     codexModel = '';
   }
