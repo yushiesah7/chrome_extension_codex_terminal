@@ -4,7 +4,6 @@ const NATIVE_HOST_NAME = 'com.yushi.chrome_extension_codex_terminal';
 const STORAGE_KEY_PENDING = 'pendingCodexAsk';
 const STORAGE_KEY_THREAD_ID = 'codexThreadId';
 const STORAGE_KEY_PROMPT_TEMPLATE = 'promptTemplate';
-const STORAGE_KEY_START_CMD = 'startCommand';
 const STORAGE_KEY_CI_START_CMD = 'ciStartCommand';
 const STORAGE_KEY_CI_RESTART_CMD = 'ciRestartCommand';
 const STORAGE_KEY_SHOW_ADVANCED = 'showAdvancedActions';
@@ -17,7 +16,6 @@ const MODEL_PRESETS = [
   { value: 'gpt-5.2-codex', label: 'gpt-5.2-codex' },
   { value: 'gpt-5.1-codex-max', label: 'gpt-5.1-codex-max' },
   { value: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
-  { value: 'gpt-5.2', label: 'gpt-5.2' }
 ];
 
 const EFFORT_PRESETS = [
@@ -343,7 +341,7 @@ async function saveCiStartCommand(value) {
   const v = safeString(value).trim() || DEFAULT_CODEX_CMD;
   ciStartCommand = v;
   try {
-    await chrome.storage.local.set({ [STORAGE_KEY_START_CMD]: v, [STORAGE_KEY_CI_START_CMD]: v });
+    await chrome.storage.local.set({ [STORAGE_KEY_CI_START_CMD]: v });
   } catch {
     // ignore
   }
@@ -423,7 +421,14 @@ function toModelPreset(value) {
 async function loadCodexModel() {
   try {
     const data = await chrome.storage.local.get([STORAGE_KEY_CODEX_MODEL]);
-    codexModel = safeString(data[STORAGE_KEY_CODEX_MODEL]).trim();
+    const v = safeString(data[STORAGE_KEY_CODEX_MODEL]).trim();
+    // 互換性: 古い値の移行（Codex CLIのモデル名に合わせる）
+    if (v === 'gpt-5.2') {
+      codexModel = 'gpt-5.2-codex';
+      chrome.storage.local.set({ [STORAGE_KEY_CODEX_MODEL]: codexModel }).catch(() => {});
+    } else {
+      codexModel = v;
+    }
   } catch {
     codexModel = '';
   }
@@ -1603,29 +1608,52 @@ async function uploadImage({ requestId, imageId, file }) {
     uploadWaiters.set(key, { resolve, reject, timer });
   });
 
-  port.postMessage({
-    type: 'upload_image_start',
-    requestId,
-    imageId,
-    filename: normalized.filename,
-    mimeType: normalized.mimeType,
-    size: bytes.length
-  });
+  const clearWaiter = () => {
+    const w = uploadWaiters.get(key);
+    if (w) {
+      uploadWaiters.delete(key);
+      try {
+        clearTimeout(w.timer);
+      } catch {
+        // ignore
+      }
+    }
+  };
 
-  let seq = 0;
-  for (let offset = 0; offset < bytes.length; offset += RAW_CHUNK_SIZE) {
-    const slice = bytes.subarray(offset, offset + RAW_CHUNK_SIZE);
-    port.postMessage({
-      type: 'upload_image_chunk',
+  const mustHavePort = () => {
+    if (!port) throw new Error('アップロード中に接続が切断されました');
+    return port;
+  };
+
+  try {
+    mustHavePort().postMessage({
+      type: 'upload_image_start',
       requestId,
       imageId,
-      seq,
-      data: bytesToBase64(slice)
+      filename: normalized.filename,
+      mimeType: normalized.mimeType,
+      size: bytes.length
     });
-    seq++;
-  }
 
-  port.postMessage({ type: 'upload_image_end', requestId, imageId, chunks: seq });
+    let seq = 0;
+    for (let offset = 0; offset < bytes.length; offset += RAW_CHUNK_SIZE) {
+      const slice = bytes.subarray(offset, offset + RAW_CHUNK_SIZE);
+      mustHavePort().postMessage({
+        type: 'upload_image_chunk',
+        requestId,
+        imageId,
+        seq,
+        data: bytesToBase64(slice)
+      });
+      seq++;
+    }
+
+    mustHavePort().postMessage({ type: 'upload_image_end', requestId, imageId, chunks: seq });
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    clearWaiter();
+    throw err;
+  }
 
   await done;
 }
