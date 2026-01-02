@@ -4,9 +4,21 @@
   "version": "0.0.2",
   "minimum_chrome_version": "116",
   "description": "選択テキストをCodexに聞けるサイドパネル（Native Messaging）",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "permissions": ["sidePanel", "nativeMessaging", "contextMenus", "storage"],
   "action": {
-    "default_title": "Codex Terminal"
+    "default_title": "Codex Terminal",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "background": {
     "service_worker": "background.js",
@@ -14,5 +26,12 @@
   },
   "side_panel": {
     "default_path": "sidepanel.html"
+  },
+  "sandbox": {
+    "pages": ["mermaid_sandbox.html"]
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'",
+    "sandbox": "sandbox allow-scripts; default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
   }
 }

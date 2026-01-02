@@ -14,7 +14,12 @@ const MAX_CHUNK = 64 * 1024;
 const MAX_MSG_LEN = 1024 * 1024; // 1MB safeguard
 
 const LOG_FILE = path.join(DEFAULT_WORKDIR, 'native_host.log');
+const UPLOAD_ROOT = path.join(DEFAULT_WORKDIR, 'uploads');
 const PATH_SEP = process.platform === 'win32' ? ';' : ':';
+const UPLOAD_TTL_MS = 10 * 60 * 1000;
+const UPLOAD_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+const MAX_UPLOAD_IMAGES = 4;
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 /** @type {import('node-pty').IPty | null} */
 let ptyProcess = null;
@@ -22,6 +27,15 @@ let ptyProcess = null;
 /** @type {import('node:child_process').ChildProcessWithoutNullStreams | null} */
 let codexProcess = null;
 let codexTimeout = null;
+let codexRequestId = null;
+
+/**
+ * requestId -> { dir, createdAt, images: Map<imageId, { path, expectedSize, bytes, nextSeq, done }> }
+ * @type {Map<string, {dir:string, createdAt:number, images: Map<string, {path:string, expectedSize:number, bytes:number, nextSeq:number, done:boolean}>}>}
+ */
+const uploads = new Map();
+
+let uploadCleanupTimer = null;
 
 function logLine(line) {
   try {
@@ -37,6 +51,17 @@ function ensureWorkdir() {
     fs.mkdirSync(DEFAULT_WORKDIR, { recursive: true, mode: 0o700 });
     try {
       fs.chmodSync(DEFAULT_WORKDIR, 0o700);
+    } catch {
+      // ignore
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    fs.mkdirSync(UPLOAD_ROOT, { recursive: true, mode: 0o700 });
+    try {
+      fs.chmodSync(UPLOAD_ROOT, 0o700);
     } catch {
       // ignore
     }
@@ -101,23 +126,147 @@ function findCodexBin() {
   return 'codex';
 }
 
-function cancelCodex() {
-  if (!codexProcess) return;
+function parseSafeId(raw, label) {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (!value) throw new Error(`${label} が空です`);
+  if (value.length > 128) throw new Error(`${label} が長すぎます`);
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error(`${label} に不正な文字が含まれます`);
+  return value;
+}
+
+function parseSafeModel(raw) {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (!value) return '';
+  if (value.length > 64) throw new Error('model が長すぎます');
+  if (!/^[A-Za-z0-9._-]+$/.test(value)) throw new Error('model に不正な文字が含まれます');
+  return value;
+}
+
+function parseSafeReasoningEffort(raw) {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (!value) return '';
+  if (!['low', 'medium', 'high', 'xhigh'].includes(value)) throw new Error('reasoningEffort が不正です');
+  return value;
+}
+
+function extractSupportedEffortsFromError(text) {
+  const raw = typeof text === 'string' ? text : '';
+  const lower = raw.toLowerCase();
+  const idx = lower.indexOf('supported values are:');
+  if (idx < 0) return [];
+  const tail = raw.slice(idx);
+  const found = [];
+  const re = /'([a-z]+)'/g;
+  let m;
+  while ((m = re.exec(tail))) {
+    const v = m[1];
+    if (['low', 'medium', 'high', 'xhigh'].includes(v)) found.push(v);
+  }
+  return Array.from(new Set(found));
+}
+
+function extForMime(mimeType) {
+  const t = typeof mimeType === 'string' ? mimeType.toLowerCase() : '';
+  if (t === 'image/png') return '.png';
+  if (t === 'image/jpeg' || t === 'image/jpg') return '.jpg';
+  if (t === 'image/webp') return '.webp';
+  if (t === 'image/gif') return '.gif';
+  return '.bin';
+}
+
+function cleanupUpload(requestId) {
+  const state = uploads.get(requestId);
+  if (!state) return;
+  uploads.delete(requestId);
 
   try {
-    codexProcess.kill('SIGTERM');
+    fs.rmSync(state.dir, { recursive: true, force: true });
   } catch {
     // ignore
   }
-  codexProcess = null;
+}
+
+function cleanupExpiredUploads() {
+  const now = Date.now();
+  for (const [requestId, state] of uploads.entries()) {
+    if (now - state.createdAt > UPLOAD_TTL_MS) cleanupUpload(requestId);
+  }
+}
+
+function ensurePeriodicUploadCleanup() {
+  if (uploadCleanupTimer) return;
+  uploadCleanupTimer = setInterval(() => {
+    try {
+      cleanupExpiredUploads();
+    } catch (e) {
+      logLine(`cleanupExpiredUploads failed: ${String(e)}`);
+    }
+  }, UPLOAD_CLEANUP_INTERVAL_MS);
+  try {
+    uploadCleanupTimer.unref?.();
+  } catch {
+    // ignore
+  }
+}
+
+function getOrCreateUploadState(requestId) {
+  cleanupExpiredUploads();
+
+  const existing = uploads.get(requestId);
+  if (existing) return existing;
+
+  ensureWorkdir();
+  ensurePeriodicUploadCleanup();
+
+  const dir = path.join(UPLOAD_ROOT, requestId);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(dir, 0o700);
+  } catch {
+    // ignore
+  }
+
+  const state = { dir, createdAt: Date.now(), images: new Map() };
+  uploads.set(requestId, state);
+  return state;
+}
+
+function shouldRunScriptViaNode(filePath) {
+  if (!path.isAbsolute(filePath)) return false;
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(96);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    const head = buf.slice(0, n).toString('utf8');
+    return head.startsWith('#!') && head.toLowerCase().includes('node');
+  } catch {
+    return false;
+  }
+}
+
+function cancelCodex() {
+  if (codexProcess) {
+    try {
+      codexProcess.kill('SIGTERM');
+    } catch {
+      // ignore
+    }
+    codexProcess = null;
+  }
 
   if (codexTimeout) {
     clearTimeout(codexTimeout);
     codexTimeout = null;
   }
+
+  if (codexRequestId) {
+    cleanupUpload(codexRequestId);
+    codexRequestId = null;
+  }
 }
 
-function runCodex({ prompt, threadId }) {
+function runCodex({ prompt, threadId, imagePaths, requestId, model, reasoningEffort }) {
   cancelCodex();
 
   if (typeof prompt !== 'string' || !prompt.trim()) {
@@ -130,29 +279,18 @@ function runCodex({ prompt, threadId }) {
   ensureWorkdir();
 
   const codexBin = findCodexBin();
-  /** @type {string[]} */
-  const args = [
-    'exec',
-    '--skip-git-repo-check',
-    '--sandbox',
-    'read-only',
-    '--color',
-    'never',
-    '--json',
-    '-C',
-    DEFAULT_WORKDIR
-  ];
+  const modelName = typeof model === 'string' ? model.trim() : '';
+  const effortName = typeof reasoningEffort === 'string' ? reasoningEffort.trim() : '';
+  const images = Array.isArray(imagePaths) ? imagePaths.filter((p) => typeof p === 'string' && p) : [];
 
-  const resumeId = typeof threadId === 'string' ? threadId.trim() : '';
-  if (resumeId) args.push('resume', resumeId);
+  let resumeId = typeof threadId === 'string' ? threadId.trim() : '';
 
-  // prompt は stdin から渡す（引数は '-'）
-  args.push('-');
-
-  sendMessage({
-    type: 'status',
-    text: resumeId ? 'Codexセッションを再開...' : 'Codexに問い合わせ中...'
-  });
+  if (resumeId && images.length) {
+    // `codex exec resume` は --image を受け付けないため、画像がある場合は新規セッション扱いにする。
+    logLine('codex: images+resume requested -> start new session');
+    sendMessage({ type: 'status', text: '画像付きの質問は新しいセッションで実行します（codex resume は画像に未対応）' });
+    resumeId = '';
+  }
 
   const nodeBinDir = path.dirname(process.execPath);
   const env = {
@@ -164,124 +302,200 @@ function runCodex({ prompt, threadId }) {
     TERM: 'dumb'
   };
 
-  logLine(
-    `codex spawn: bin=${codexBin} resume=${resumeId ? resumeId.slice(0, 8) + '…' : '(new)'} node=${process.execPath} PATH.head=${env.PATH.split(PATH_SEP).slice(0, 3).join(PATH_SEP)}`
-  );
+  const runViaNode = shouldRunScriptViaNode(codexBin);
+  const spawnBin = runViaNode ? process.execPath : codexBin;
 
-  const child = spawn(codexBin, args, {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env
-  });
-
-  codexProcess = child;
-
-  let stderr = '';
-  child.stderr.on('data', (chunk) => {
-    stderr += chunk.toString('utf8');
-    // メモリ肥大防止（ログは最後の方だけ保持）
-    if (stderr.length > 200_000) stderr = stderr.slice(-200_000);
-  });
-
-  // --json の JSONL を逐次解析して、thread_id と回答を拾う
-  let stdoutBuf = '';
-  child.stdout.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => {
-    stdoutBuf += chunk;
-    if (stdoutBuf.length > 500_000) stdoutBuf = stdoutBuf.slice(-500_000);
-
-    let newlineIdx;
-    while ((newlineIdx = stdoutBuf.indexOf('\n')) >= 0) {
-      const line = stdoutBuf.slice(0, newlineIdx).trim();
-      stdoutBuf = stdoutBuf.slice(newlineIdx + 1);
-      if (!line) continue;
-
-      let evt;
-      try {
-        evt = JSON.parse(line);
-      } catch {
-        continue;
-      }
-
-      if (evt?.type === 'thread.started' && typeof evt.thread_id === 'string') {
-        sendMessage({ type: 'codex_thread', id: evt.thread_id });
-        continue;
-      }
-
-      if (evt?.type === 'item.completed') {
-        const item = evt.item;
-        if (item?.type === 'agent_message' && typeof item.text === 'string' && item.text) {
-          // UI側のスクロールを崩さないよう、最後に改行を付与
-          sendTextChunks('codex_chunk', item.text.trimEnd() + '\n');
-        }
-      }
-    }
-  });
-
-  child.on('error', (e) => {
-    codexProcess = null;
-    if (codexTimeout) {
-      clearTimeout(codexTimeout);
-      codexTimeout = null;
-    }
-    logLine(`codex error: ${String(e)}`);
-    sendMessage({ type: 'codex_error', text: String(e) });
-    sendMessage({ type: 'codex_done' });
-  });
-
-  child.on('close', (code, signal) => {
-    codexProcess = null;
-    if (codexTimeout) {
-      clearTimeout(codexTimeout);
-      codexTimeout = null;
-    }
-
-    // 最後が改行で終わらない場合に備えて、残りを1行として処理する
-    const tail = stdoutBuf.trim();
-    if (tail) {
-      try {
-        const evt = JSON.parse(tail);
-        if (evt?.type === 'thread.started' && typeof evt.thread_id === 'string') {
-          sendMessage({ type: 'codex_thread', id: evt.thread_id });
-        } else if (evt?.type === 'item.completed') {
-          const item = evt.item;
-          if (item?.type === 'agent_message' && typeof item.text === 'string' && item.text) {
-            sendTextChunks('codex_chunk', item.text.trimEnd() + '\n');
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    if (code !== 0) {
-      const err = stderr.trim() ? stderr.trim() : `codex exec failed (code=${String(code)}, signal=${String(signal)})`;
-      logLine(`codex exit: code=${String(code)} signal=${String(signal)} stderr.tail=${err.slice(-500)}`);
-      sendMessage({ type: 'codex_error', text: err });
-    }
-
-    sendMessage({ type: 'codex_done' });
-  });
-
-  // prompt を stdin で渡す
-  try {
-    child.stdin.write(prompt);
-    child.stdin.end();
-  } catch (e) {
-    sendMessage({ type: 'codex_error', text: String(e) });
-    sendMessage({ type: 'codex_done' });
-    cancelCodex();
-    return;
+  if (runViaNode) {
+    logLine(`codex spawn: run via node (bypass shebang)`);
   }
 
-  // タイムアウト（長時間ぶら下がるのを防止）
-  codexTimeout = setTimeout(() => {
-    const stillRunning = Boolean(codexProcess);
-    cancelCodex();
-    if (stillRunning) {
-      sendMessage({ type: 'codex_error', text: 'Codex の実行がタイムアウトしました' });
+  const attempt = (attemptEffort, attemptNo) => {
+    /** @type {string[]} */
+    const args = ['exec'];
+    if (modelName) args.push('-c', `model="${modelName}"`);
+    if (attemptEffort) args.push('-c', `model_reasoning_effort="${attemptEffort}"`);
+    args.push('--skip-git-repo-check', '--sandbox', 'read-only', '--color', 'never', '--json', '-C', DEFAULT_WORKDIR);
+    if (images.length) args.push('--image', ...images);
+    if (resumeId) args.push('resume', resumeId);
+    args.push('-');
+
+    sendMessage({
+      type: 'status',
+      text: resumeId ? 'Codexセッションを再開...' : 'Codexに問い合わせ中...'
+    });
+
+    logLine(
+      `codex spawn: req=${requestId ? String(requestId).slice(0, 8) + '…' : '(none)'} images=${images.length} model=${modelName || '(default)'} effort=${attemptEffort || '(default)'} bin=${codexBin} resume=${resumeId ? resumeId.slice(0, 8) + '…' : '(new)'} node=${process.execPath} PATH.head=${env.PATH.split(PATH_SEP).slice(0, 3).join(PATH_SEP)}`
+    );
+
+    const spawnArgs = runViaNode ? [codexBin, ...args] : args;
+    const child = spawn(spawnBin, spawnArgs, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env
+    });
+
+    codexProcess = child;
+    codexRequestId = typeof requestId === 'string' ? requestId : null;
+
+    let stderr = '';
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString('utf8');
+      // メモリ肥大防止（ログは最後の方だけ保持）
+      if (stderr.length > 200_000) stderr = stderr.slice(-200_000);
+    });
+
+    let lastJsonError = '';
+
+    // --json の JSONL を逐次解析して、thread_id と回答を拾う
+    let stdoutBuf = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdoutBuf += chunk;
+      if (stdoutBuf.length > 500_000) stdoutBuf = stdoutBuf.slice(-500_000);
+
+      let newlineIdx;
+      while ((newlineIdx = stdoutBuf.indexOf('\n')) >= 0) {
+        const line = stdoutBuf.slice(0, newlineIdx).trim();
+        stdoutBuf = stdoutBuf.slice(newlineIdx + 1);
+        if (!line) continue;
+
+        let evt;
+        try {
+          evt = JSON.parse(line);
+        } catch {
+          continue;
+        }
+
+        if (evt?.type === 'thread.started' && typeof evt.thread_id === 'string') {
+          sendMessage({ type: 'codex_thread', id: evt.thread_id });
+          continue;
+        }
+
+        if (evt?.type === 'item.completed') {
+          const item = evt.item;
+          if (item?.type === 'agent_message' && typeof item.text === 'string' && item.text) {
+            // UI側のスクロールを崩さないよう、最後に改行を付与
+            sendTextChunks('codex_chunk', item.text.trimEnd() + '\n');
+          }
+          continue;
+        }
+
+        if (evt?.type === 'error' && typeof evt.message === 'string') {
+          lastJsonError = evt.message;
+          continue;
+        }
+
+        if (evt?.type === 'turn.failed') {
+          const errMsg = evt?.error?.message;
+          if (typeof errMsg === 'string') lastJsonError = errMsg;
+        }
+      }
+    });
+
+    child.on('error', (e) => {
+      codexProcess = null;
+      if (codexTimeout) {
+        clearTimeout(codexTimeout);
+        codexTimeout = null;
+      }
+      if (codexRequestId) {
+        cleanupUpload(codexRequestId);
+        codexRequestId = null;
+      }
+      logLine(`codex error: ${String(e)}`);
+      sendMessage({ type: 'codex_error', text: String(e) });
       sendMessage({ type: 'codex_done' });
+    });
+
+    child.on('close', (code, signal) => {
+      codexProcess = null;
+      if (codexTimeout) {
+        clearTimeout(codexTimeout);
+        codexTimeout = null;
+      }
+
+      // 最後が改行で終わらない場合に備えて、残りを1行として処理する
+      const tail = stdoutBuf.trim();
+      if (tail) {
+        try {
+          const evt = JSON.parse(tail);
+          if (evt?.type === 'thread.started' && typeof evt.thread_id === 'string') {
+            sendMessage({ type: 'codex_thread', id: evt.thread_id });
+          } else if (evt?.type === 'item.completed') {
+            const item = evt.item;
+            if (item?.type === 'agent_message' && typeof item.text === 'string' && item.text) {
+              sendTextChunks('codex_chunk', item.text.trimEnd() + '\n');
+            }
+          } else if (evt?.type === 'error' && typeof evt.message === 'string') {
+            lastJsonError = evt.message;
+          } else if (evt?.type === 'turn.failed') {
+            const errMsg = evt?.error?.message;
+            if (typeof errMsg === 'string') lastJsonError = errMsg;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (code !== 0 && attemptNo === 0 && attemptEffort) {
+        const errText = stderr.trim() || lastJsonError || '';
+        const combined = errText.toLowerCase();
+        const looksUnsupported =
+          combined.includes('unsupported value') &&
+          (combined.includes('reasoning.effort') || combined.includes('model_reasoning_effort'));
+        if (looksUnsupported) {
+          const supported = extractSupportedEffortsFromError(errText);
+          if (modelName && supported.length) {
+            sendMessage({ type: 'codex_effort_caps', model: modelName, supportedEfforts: supported });
+          }
+          logLine(`codex retry: unsupported reasoning effort -> fallback to default (model=${modelName || '(default)'} effort=${attemptEffort})`);
+          sendMessage({
+            type: 'status',
+            text: '推論レベルがこのモデルで利用できないため、デフォルトで再試行します...'
+          });
+          attempt('', 1);
+          return;
+        }
+      }
+
+      if (codexRequestId) {
+        cleanupUpload(codexRequestId);
+        codexRequestId = null;
+      }
+
+      if (code !== 0) {
+        const err =
+          stderr.trim() || lastJsonError || `codex exec failed (code=${String(code)}, signal=${String(signal)})`;
+        logLine(`codex exit: code=${String(code)} signal=${String(signal)} stderr.tail=${err.slice(-500)}`);
+        sendMessage({ type: 'codex_error', text: err });
+      }
+
+      sendMessage({ type: 'codex_done' });
+    });
+
+    // prompt を stdin で渡す
+    try {
+      child.stdin.write(prompt);
+      child.stdin.end();
+    } catch (e) {
+      sendMessage({ type: 'codex_error', text: String(e) });
+      sendMessage({ type: 'codex_done' });
+      cancelCodex();
+      return;
     }
-  }, 180_000);
+
+    // タイムアウト（長時間ぶら下がるのを防止）
+    codexTimeout = setTimeout(() => {
+      const stillRunning = Boolean(codexProcess);
+      cancelCodex();
+      if (stillRunning) {
+        sendMessage({ type: 'codex_error', text: 'Codex の実行がタイムアウトしました' });
+        sendMessage({ type: 'codex_done' });
+      }
+    }, 180_000);
+  };
+
+  attempt(effortName, 0);
 }
 
 function startShell({ cwd }) {
@@ -366,10 +580,139 @@ function startShell({ cwd }) {
 function handleMessage(msg) {
   if (!msg || typeof msg !== 'object') return;
 
+  if (msg.type === 'upload_image_start') {
+    try {
+      const requestId = parseSafeId(msg.requestId, 'requestId');
+      const imageId = parseSafeId(msg.imageId, 'imageId');
+      const size = Number(msg.size);
+      if (!Number.isFinite(size) || size <= 0) throw new Error('size が不正です');
+      if (size > MAX_IMAGE_BYTES) throw new Error('画像が大きすぎます');
+
+      const state = getOrCreateUploadState(requestId);
+      if (state.images.size >= MAX_UPLOAD_IMAGES && !state.images.has(imageId)) {
+        throw new Error(`画像は最大${MAX_UPLOAD_IMAGES}枚までです`);
+      }
+
+      const ext = extForMime(msg.mimeType);
+      const filePath = path.join(state.dir, `${imageId}${ext}`);
+
+      // 既存ファイルがあれば消す（同じimageIdの再送に備える）
+      try {
+        fs.rmSync(filePath, { force: true });
+      } catch {
+        // ignore
+      }
+
+      fs.writeFileSync(filePath, Buffer.alloc(0), { mode: 0o600 });
+
+      state.images.set(imageId, {
+        path: filePath,
+        expectedSize: size,
+        bytes: 0,
+        nextSeq: 0,
+        done: false
+      });
+
+      logLine(`upload start: req=${requestId.slice(0, 8)}… img=${imageId.slice(0, 8)}… size=${size} path=${filePath}`);
+    } catch (e) {
+      logLine(`upload start error: ${String(e)}`);
+      sendMessage({ type: 'upload_error', requestId: msg.requestId, imageId: msg.imageId, text: String(e) });
+    }
+    return;
+  }
+
+  if (msg.type === 'upload_image_chunk') {
+    try {
+      const requestId = parseSafeId(msg.requestId, 'requestId');
+      const imageId = parseSafeId(msg.imageId, 'imageId');
+      const seq = Number(msg.seq);
+      const data = typeof msg.data === 'string' ? msg.data : '';
+      if (!Number.isFinite(seq) || seq < 0) throw new Error('seq が不正です');
+      if (!data) throw new Error('data が空です');
+
+      const state = uploads.get(requestId);
+      const img = state?.images.get(imageId);
+      if (!state || !img) throw new Error('upload が開始されていません');
+      if (img.done) throw new Error('upload はすでに完了しています');
+      if (seq !== img.nextSeq) throw new Error(`chunk の順序が不正です（expected=${img.nextSeq}, got=${seq}）`);
+
+      const buf = Buffer.from(data, 'base64');
+      if (!buf.length) throw new Error('chunk のデコードに失敗しました');
+      if (img.bytes + buf.length > img.expectedSize) throw new Error('画像サイズが不正です（expected を超過）');
+      if (img.bytes + buf.length > MAX_IMAGE_BYTES) throw new Error('画像が大きすぎます');
+
+      fs.appendFileSync(img.path, buf);
+      img.bytes += buf.length;
+      img.nextSeq += 1;
+    } catch (e) {
+      logLine(`upload chunk error: ${String(e)}`);
+      sendMessage({ type: 'upload_error', requestId: msg.requestId, imageId: msg.imageId, text: String(e) });
+    }
+    return;
+  }
+
+  if (msg.type === 'upload_image_end') {
+    try {
+      const requestId = parseSafeId(msg.requestId, 'requestId');
+      const imageId = parseSafeId(msg.imageId, 'imageId');
+      const chunks = Number(msg.chunks);
+      if (!Number.isFinite(chunks) || chunks < 0) throw new Error('chunks が不正です');
+
+      const state = uploads.get(requestId);
+      const img = state?.images.get(imageId);
+      if (!state || !img) throw new Error('upload が開始されていません');
+      if (img.done) throw new Error('upload はすでに完了しています');
+      if (chunks !== img.nextSeq) throw new Error(`chunks 数が不正です（expected=${img.nextSeq}, got=${chunks}）`);
+      if (img.bytes !== img.expectedSize) {
+        throw new Error(`画像サイズが一致しません（expected=${img.expectedSize}, got=${img.bytes}）`);
+      }
+
+      img.done = true;
+      logLine(`upload done: req=${requestId.slice(0, 8)}… img=${imageId.slice(0, 8)}… bytes=${img.bytes} path=${img.path}`);
+      sendMessage({ type: 'upload_ok', requestId, imageId });
+    } catch (e) {
+      logLine(`upload end error: ${String(e)}`);
+      sendMessage({ type: 'upload_error', requestId: msg.requestId, imageId: msg.imageId, text: String(e) });
+    }
+    return;
+  }
+
   if (msg.type === 'codex' && typeof msg.prompt === 'string') {
+    /** @type {string[]} */
+    const imagePaths = [];
+    let modelName = '';
+    let effortName = '';
+    try {
+      const imageIds = Array.isArray(msg.imageIds) ? msg.imageIds : [];
+      if (imageIds.length) {
+        const requestId = parseSafeId(msg.requestId, 'requestId');
+        const state = uploads.get(requestId);
+        if (!state) throw new Error('画像が見つかりません（upload state がありません）');
+
+        for (const rawId of imageIds) {
+          const imageId = parseSafeId(rawId, 'imageId');
+          const img = state.images.get(imageId);
+          if (!img) throw new Error(`画像が見つかりません（imageId=${imageId}）`);
+          if (!img.done) throw new Error(`画像の受信が完了していません（imageId=${imageId}）`);
+          imagePaths.push(img.path);
+        }
+      }
+
+      modelName = parseSafeModel(msg.model);
+      effortName = parseSafeReasoningEffort(msg.reasoningEffort);
+    } catch (e) {
+      sendMessage({ type: 'codex_error', text: String(e) });
+      sendMessage({ type: 'codex_done' });
+      return;
+    }
+
     runCodex({
       prompt: msg.prompt,
-      threadId: typeof msg.threadId === 'string' ? msg.threadId : undefined
+      threadId: typeof msg.threadId === 'string' ? msg.threadId : undefined,
+      imagePaths,
+      requestId: typeof msg.requestId === 'string' ? msg.requestId : undefined,
+      model: modelName || undefined,
+      reasoningEffort: effortName || undefined
     });
     return;
   }
@@ -436,5 +779,8 @@ process.stdin.on('end', () => {
 
 // Initial status
 ensureWorkdir();
-logLine(`native host started: node=${process.execPath}`);
-sendMessage({ type: 'status', text: 'Native host ready' });
+const startupCodexBin = findCodexBin();
+logLine(
+  `native host started: node=${process.execPath} codex=${startupCodexBin} PATH.head=${(typeof process.env.PATH === 'string' ? process.env.PATH : '').split(PATH_SEP).slice(0, 5).join(PATH_SEP)}`
+);
+sendMessage({ type: 'status', text: `Native host ready (log: ${LOG_FILE})` });

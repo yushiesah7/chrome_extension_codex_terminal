@@ -8,45 +8,183 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <header class="header">
-      <div class="row">
-        <div class="title">Codex Terminal</div>
-        <!-- Native Host への接続/切断ボタン -->
-        <button id="connectBtn" class="btn">接続</button>
-        <button id="disconnectBtn" class="btn" disabled>切断</button>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brandTitle">Codex Terminal</div>
+        <div id="meta" class="brandMeta">未接続</div>
       </div>
-      <div class="row">
-        <label class="label" for="question">質問</label>
-        <input id="question" class="input" type="text" autocomplete="off" spellcheck="false" />
-        <button id="askBtn" class="btn" disabled>Codexに聞く</button>
-        <button id="clearBtn" class="btn">クリア</button>
+      <div class="topbarRight">
+        <div class="settings">
+          <button id="settingsBtn" class="btn ghost" aria-expanded="false" title="設定">
+            <span class="btnIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+                <path d="M19.4 15a7.9 7.9 0 0 0 .1-1 7.9 7.9 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-1.7-1l-.4-2.6H9.1l-.4 2.6a7.6 7.6 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.9 7.9 0 0 0-.1 1c0 .3 0 .7.1 1l-2 1.6 2 3.4 2.4-1c.5.4 1.1.7 1.7 1l.4 2.6h5.8l.4-2.6c.6-.3 1.2-.6 1.7-1l2.4 1 2-3.4-2-1.6z" />
+              </svg>
+            </span>
+            設定
+            <span class="btnCaret" aria-hidden="true">▾</span>
+          </button>
+          <div id="settingsMenu" class="settingsMenu" hidden>
+            <button class="menuItem" data-action="prompt">
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 4h16v16H4z" />
+                  <path d="M8 8h8" />
+                  <path d="M8 12h8" />
+                  <path d="M8 16h6" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">前提プロンプト</span>
+                <span class="menuDesc">毎回の指示テンプレを編集</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="model">
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2 22 7 12 12 2 7 12 2z" />
+                  <path d="M22 7v10l-10 5-10-5V7" />
+                  <path d="M12 12v10" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">モデル / 推論</span>
+                <span class="menuDesc">モデルと推論レベルを選択</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="start-ci" data-advanced="1" hidden>
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 5v14l11-7-11-7z" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">起動コマンド</span>
+                <span class="menuDesc">`codex` 実行コマンドを設定</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="restart-ci" data-advanced="1" hidden>
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">CI再起動（コマンド）</span>
+                <span class="menuDesc">CI再起動コマンドを保存/入力へ反映</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="export-md">
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3v12" />
+                  <path d="M7 10l5 5 5-5" />
+                  <path d="M5 21h14" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">Markdownエクスポート</span>
+                <span class="menuDesc">会話ログをコピー/保存</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="copy-all">
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />
+                  <rect x="8" y="2" width="12" height="16" rx="2" ry="2" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">会話をコピー（全て）</span>
+                <span class="menuDesc">全やりとりを丸ごとコピー</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="help">
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22a10 10 0 1 0-10-10 10 10 0 0 0 10 10z" />
+                  <path d="M12 17h.01" />
+                  <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">ヘルプ / 仕様</span>
+                <span class="menuDesc">使い方・設定・トラブル対応</span>
+              </span>
+            </button>
+            <button class="menuItem" data-action="new-chat">
+              <span class="menuIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+                  <path d="M12 8v6" />
+                  <path d="M9 11h6" />
+                </svg>
+              </span>
+              <span class="menuText">
+                <span class="menuTitle">新しい会話（リセット）</span>
+                <span class="menuDesc">会話/スレッドをリセットして開始</span>
+              </span>
+            </button>
+          </div>
+        </div>
       </div>
-      <div class="row rowTight">
-        <label class="checkbox">
-          <input id="keepSession" type="checkbox" checked />
-          会話を続ける（セッション）
-        </label>
-        <div id="sessionMeta" class="meta"></div>
-        <button id="newSessionBtn" class="btn">新しい会話</button>
-      </div>
-      <div id="status" class="status">未接続</div>
     </header>
 
     <main class="main">
-      <section class="panel">
+      <div id="chat" class="chat" aria-label="conversation"></div>
+      <div id="panelOverlay" class="panelOverlay" hidden></div>
+      <aside id="settingsPanel" class="settingsPanel" aria-label="settings panel" hidden>
         <div class="panelHeader">
-          <div class="panelTitle">選択テキスト</div>
-          <div id="pageUrl" class="panelMeta"></div>
+          <div id="panelTitle" class="panelTitle">設定</div>
+          <button id="panelClose" class="iconBtn ghost" aria-label="close panel" title="閉じる">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 6 6 18" />
+              <path d="M6 6 18 18" />
+            </svg>
+          </button>
         </div>
-        <textarea id="selection" class="textarea" spellcheck="false" placeholder="ここに選択テキストが入ります（右クリック → Codexに聞く（選択範囲）でもOK）"></textarea>
-      </section>
-
-      <section class="panel">
-        <div class="panelHeader">
-          <div class="panelTitle">回答</div>
+        <div id="panelBody" class="panelBody">
+          <p class="muted">ここに設定内容を表示します。</p>
         </div>
-        <div id="answer" class="answer markdown" aria-label="codex answer"></div>
-      </section>
+      </aside>
+      <footer class="composer" aria-label="composer">
+        <div id="attachments" class="attachments" hidden></div>
+        <div id="dropZone" class="composerRow">
+          <button id="attachBtn" class="iconBtn" aria-label="attach" title="画像を添付">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21.4 11.6 12.9 20a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.6 5.6L10.2 17a2 2 0 0 1-2.8-2.8L15.8 5.8" />
+            </svg>
+          </button>
+          <textarea
+            id="promptInput"
+            class="composerInput"
+            rows="1"
+            placeholder="質問を書く（Enterで送信 / Shift+Enterで改行）"
+            spellcheck="false"
+          ></textarea>
+          <button id="sendBtn" class="btn primary" aria-label="send" title="送信（Enter）">
+            <span class="btnIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 2 11 13" />
+                <path d="M22 2 15 22l-4-9-9-4 20-7z" />
+              </svg>
+            </span>
+            送信
+          </button>
+          <button id="clearBtn" class="iconBtn ghost" aria-label="clear input" title="入力をクリア">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 6 6 18" />
+              <path d="M6 6 18 18" />
+            </svg>
+          </button>
+        </div>
+        <div id="status" class="hint">
+          Enterで送信。Shift+Enterで改行。ローカルの `codex` を実行します。
+        </div>
+        <input id="fileInput" class="hidden" type="file" accept="image/*" multiple />
+      </footer>
     </main>
 
     <!-- サイドパネルの挙動（Native Messaging 連携） -->
