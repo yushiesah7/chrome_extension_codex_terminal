@@ -97,7 +97,7 @@ let effortCapsByModel = {};
 /** @type {{id:string, file:File, previewUrl:string}[]} */
 let attachments = [];
 
-/** @type {{bubble:HTMLElement, buffer:string, hasStarted:boolean} | null} */
+/** @type {{bubble:HTMLElement, buffer:string, hasStarted:boolean, renderTimer:number, lastRenderAt:number, lastRenderedLen:number} | null} */
 let currentAssistant = null;
 
 let conversationTurns = [];
@@ -948,19 +948,41 @@ function ensureBubbleCopyAction(bubble) {
   bubble.appendChild(actions);
 }
 
-function setBubbleMarkdown(bubble, markdown) {
+function setBubbleMarkdown(bubble, markdown, { renderMermaid = true } = {}) {
   const html = renderMarkdownToHtml(markdown);
   try {
     bubble.dataset.rawMarkdown = safeString(markdown);
   } catch {
     // ignore
   }
+
+  const actionsNode = bubble.querySelector('.msgActions');
+  if (actionsNode) {
+    try {
+      actionsNode.remove();
+    } catch {
+      // ignore
+    }
+  }
+
+  const imagesNode = bubble.querySelector('.msgImages');
+  if (imagesNode) {
+    try {
+      imagesNode.remove();
+    } catch {
+      // ignore
+    }
+  }
+
   if (html) {
     bubble.innerHTML = html;
-    renderMermaidIn(bubble);
+    if (renderMermaid) renderMermaidIn(bubble);
   } else {
     bubble.textContent = markdown;
   }
+
+  if (imagesNode) bubble.appendChild(imagesNode);
+  if (actionsNode) bubble.appendChild(actionsNode);
 
   ensureBubbleCopyAction(bubble);
 }
@@ -981,8 +1003,49 @@ function addUserMessage({ markdown, imagePreviews }) {
 function startAssistantMessage() {
   const bubble = createMessageRow('assistant');
   bubble.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
-  currentAssistant = { bubble, buffer: '', hasStarted: false };
+  currentAssistant = {
+    bubble,
+    buffer: '',
+    hasStarted: false,
+    renderTimer: 0,
+    lastRenderAt: 0,
+    lastRenderedLen: 0
+  };
   scrollToBottom();
+}
+
+const STREAM_RENDER_INTERVAL_MS = 120;
+
+function scheduleAssistantStreamingRender() {
+  if (!currentAssistant) return;
+
+  const assistant = currentAssistant;
+  const bubble = assistant.bubble;
+  const buffer = assistant.buffer;
+  if (!buffer) return;
+
+  if (assistant.renderTimer) return;
+
+  const now = typeof performance?.now === 'function' ? performance.now() : Date.now();
+  const since = now - (assistant.lastRenderAt || 0);
+  const dueIn = since >= STREAM_RENDER_INTERVAL_MS ? 0 : STREAM_RENDER_INTERVAL_MS - since;
+
+  assistant.renderTimer = window.setTimeout(() => {
+    if (!currentAssistant || currentAssistant !== assistant) return;
+    assistant.renderTimer = 0;
+    const t = typeof performance?.now === 'function' ? performance.now() : Date.now();
+    assistant.lastRenderAt = t;
+
+    const md = assistant.buffer;
+    assistant.lastRenderedLen = md.length;
+    setBubbleMarkdown(bubble, md, { renderMermaid: false });
+    scrollToBottom();
+
+    // 描画中にさらに追記されていたら次回描画を予約
+    if (currentAssistant && currentAssistant === assistant && assistant.buffer.length !== assistant.lastRenderedLen) {
+      scheduleAssistantStreamingRender();
+    }
+  }, dueIn);
 }
 
 function appendAssistantText(text) {
@@ -992,17 +1055,23 @@ function appendAssistantText(text) {
   currentAssistant.buffer += text;
   if (!currentAssistant.hasStarted) {
     currentAssistant.hasStarted = true;
-    currentAssistant.bubble.textContent = '';
   }
-  currentAssistant.bubble.textContent = currentAssistant.buffer;
-  scrollToBottom();
+  scheduleAssistantStreamingRender();
 }
 
 function finishAssistantMarkdown() {
   if (!currentAssistant) return;
+  if (currentAssistant.renderTimer) {
+    try {
+      clearTimeout(currentAssistant.renderTimer);
+    } catch {
+      // ignore
+    }
+    currentAssistant.renderTimer = 0;
+  }
   const markdown = currentAssistant.buffer.trimEnd();
   if (markdown) {
-    setBubbleMarkdown(currentAssistant.bubble, markdown);
+    setBubbleMarkdown(currentAssistant.bubble, markdown, { renderMermaid: true });
   } else {
     currentAssistant.bubble.textContent = '（応答なし）';
   }
@@ -1020,6 +1089,14 @@ function finishAssistantMarkdown() {
 
 function failAssistant(text) {
   if (currentAssistant) {
+    if (currentAssistant.renderTimer) {
+      try {
+        clearTimeout(currentAssistant.renderTimer);
+      } catch {
+        // ignore
+      }
+      currentAssistant.renderTimer = 0;
+    }
     currentAssistant.bubble.textContent = text;
 
     if (activeTurnId) {
@@ -1178,6 +1255,13 @@ function handleHostMessage(msg) {
 function resetConversation({ clearThread } = {}) {
   // UI
   chatEl.innerHTML = '';
+  if (currentAssistant?.renderTimer) {
+    try {
+      clearTimeout(currentAssistant.renderTimer);
+    } catch {
+      // ignore
+    }
+  }
   currentAssistant = null;
   conversationTurns = [];
   activeTurnId = '';
